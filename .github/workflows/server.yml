@@ -22,7 +22,7 @@ jobs:
 
       - name: Restore world
         run: |
-          rclone copy gdrive:mc-backup/world.tar.zst . --ignore-errors || true
+          rclone copy rclone-mc:mc-backup/world.tar.zst . --ignore-errors || true
           if [ -f world.tar.zst ]; then
             tar --zstd -xf world.tar.zst
             echo "World restored"
@@ -30,10 +30,10 @@ jobs:
             echo "No backup found, fresh start"
           fi
 
-      - name: Download Paper
+      - name: Download Paper 1.21.10
         run: |
           wget -q -O server.jar \
-            "https://api.papermc.io/v2/projects/paper/versions/1.21.4/builds/latest/downloads/paper-1.21.4-latest.jar"
+            "https://api.papermc.io/v2/projects/paper/versions/1.21.10/builds/129/downloads/paper-1.21.10-129.jar"
 
       - name: Install & start ngrok
         run: |
@@ -45,7 +45,6 @@ jobs:
           ngrok authtoken ${{ secrets.NGROK_TOKEN }}
           ngrok tcp 25565 --log=stdout > ngrok.log &
           sleep 8
-          # Affiche l'IP dans les logs
           curl -s http://localhost:4040/api/tunnels \
             | python3 -c "
           import sys, json
@@ -69,6 +68,6 @@ jobs:
         run: |
           if [ -d world ]; then
             tar --zstd -cf world.tar.zst world/
-            rclone copy world.tar.zst gdrive:mc-backup/
+            rclone copy world.tar.zst rclone-mc:mc-backup/
             echo "Backup done"
           fi
