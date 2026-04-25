@@ -31,15 +31,14 @@ jobs:
 
       - name: Tunnel TCP
         run: |
-          ssh -o StrictHostKeyChecking=no \
-              -o ServerAliveInterval=30 \
-              -o ServerAliveCountMax=9999 \
-              -R 0:localhost:25565 \
-              serveo.net 2>&1 | tee tunnel.log &
-          sleep 12
-          grep -oP 'Forwarding TCP connections from \K\S+' tunnel.log || cat tunnel.log
+          curl -L https://github.com/ekzhang/bore/releases/download/v0.5.0/bore-v0.5.0-x86_64-unknown-linux-musl.tar.gz \
+            | tar xz
+          chmod +x bore
+          ./bore local 25565 --to bore.pub 2>&1 | tee tunnel.log &
+          sleep 8
+          IP=$(grep -oP 'listening at bore\.pub:\K[0-9]+' tunnel.log | head -1)
           echo "==============================="
-          echo "  IP : $(grep -oP 'Forwarding TCP connections from \K\S+' tunnel.log | head -1)"
+          echo "  IP : bore.pub:${IP}"
           echo "==============================="
 
       - name: Start Paper 1.21.10
