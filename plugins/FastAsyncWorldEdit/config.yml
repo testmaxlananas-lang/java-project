@@ -2,29 +2,35 @@ enabled-components:
   commands: true
   default-locale: en
   lighting-fixer: false
+
 queue:
-  target-size: 65536
-  parallel-threads: 8
-  discard-after-ms: 600000
-  light-queue-size: 4096
+  # 500M blocs = besoin de queues massives
+  target-size: 262144        # 256K blocs par batch (max)
+  parallel-threads: 8        # tous les threads dispo
+  discard-after-ms: 3600000  # 1h de timeout
+  light-queue-size: 65536
   chunk-activations: true
-  async-dissipate: false
+  async-dissipate: true
+
 history:
-  use-disk: true
+  use-disk: true             # CRITIQUE : évite OOM sur 500M blocs
   use-database: false
-  max-changes-per-second: 0
+  max-changes-per-second: 0  # pas de limite
   chunk-bound-history: false
   combine-stages: true
-  linear-expiry: 0
+  linear-expiry: 0           # jamais expirer
+
 clipboard:
-  use-disk: true
-  compression-level: 1
+  use-disk: true             # clipboard sur disque
+  compression-level: 1       # compression rapide
+
 lighting:
   async: true
   delay: 0
-  relight: true
-  sky-obstructions: false
+  relight: false             # désactiver relight sur grosses ops
+
 limits:
+  # AUCUNE limite sur rien
   max-actions: -1
   max-changes: -1
   max-fails: -1
@@ -33,9 +39,11 @@ limits:
   max-blockstates: -1
   max-entities: -1
   max-history: -1
+
 progress:
-  delay: 5000
+  delay: 1000
   interval: 1
   enabled: true
+
 extent:
   clipboard-class: com.fastasyncworldedit.core.extent.clipboard.DiskOptimizedClipboard
