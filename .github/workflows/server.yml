@@ -6,7 +6,7 @@ on:
     - cron: '0 */5 * * *'
 
 env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true   # Fix warning Node.js 20
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   run:
@@ -26,6 +26,7 @@ jobs:
           sudo systemctl stop unattended-upgrades 2>/dev/null || true
           sudo systemctl disable unattended-upgrades 2>/dev/null || true
 
+          # rclone
           curl -fsSL "https://downloads.rclone.org/rclone-current-linux-amd64.zip" \
             -o /tmp/rclone.zip
           unzip -jo /tmp/rclone.zip "*/rclone" -d /tmp/
@@ -36,6 +37,7 @@ jobs:
           mkdir -p ~/.config/rclone
           echo "${{ secrets.RCLONE_CONF_B64 }}" | base64 -d > ~/.config/rclone/rclone.conf
 
+          # Tuning OS
           sudo sysctl -w \
             net.core.rmem_max=134217728 \
             net.core.wmem_max=134217728 \
@@ -46,6 +48,7 @@ jobs:
             vm.dirty_ratio=15 \
             vm.dirty_background_ratio=5 2>/dev/null || true
 
+          # Swap
           if ! swapon --show | grep -q /swapfile; then
             if [ ! -f /swapfile ]; then
               sudo fallocate -l 4G /swapfile 2>/dev/null \
@@ -54,10 +57,13 @@ jobs:
             sudo chmod 600 /swapfile
             sudo mkswap /swapfile 2>/dev/null || true
             sudo swapon /swapfile 2>/dev/null || true
-            echo "Swap activé ✓"
+            echo "Swap 4G activé ✓"
           else
             echo "Swap déjà actif ✓"
           fi
+
+          # Dépendances monitoring
+          sudo apt-get install -y --quiet sysstat bc 2>/dev/null || true
 
       - name: Restore world + plugins + server.jar
         run: |
@@ -99,59 +105,90 @@ jobs:
           [ -n "$PID_EP" ] && wait $PID_EP
           echo "Restore terminé ✓"
 
-      - name: Download Paper (cache drive)
+      - name: Download Paper
         run: |
           if [ -f server.jar ]; then
             echo "server.jar depuis le cache ✓"
           else
-            echo "Téléchargement Paper 1.21.10 build 129..."
             wget -q -O server.jar \
               "https://api.papermc.io/v2/projects/paper/versions/1.21.10/builds/129/downloads/paper-1.21.10-129.jar"
             rclone copy server.jar rclone-mc:mc-backup/ --ignore-errors &
             disown
           fi
 
-      # ──────────────────────────────────────────────────────
-      # CORRECTION DU BUG : le repo EST le workdir
-      # Les fichiers du repo sont DÉJÀ au bon endroit
-      # On applique seulement les configs plugins (git → runtime)
-      # ──────────────────────────────────────────────────────
-      - name: Appliquer configs du repo vers le runtime
+      - name: Appliquer configs
         run: |
-          REPO_DIR="/home/runner/work/java-project/java-project"
-
-          echo "server.properties : $([ -f server.properties ] && echo 'OK ✓' || echo 'absent')"
-          echo "ops.json          : $([ -f ops.json ]          && echo 'OK ✓' || echo 'absent')"
-          echo "eula.txt          : $([ -f eula.txt ]          && echo 'OK ✓' || echo 'absent')"
-          echo "config/paper      : $([ -f config/paper-global.yml ] && echo 'OK ✓' || echo 'absent')"
-          echo "config/spigot     : $([ -f config/spigot.yml ] && echo 'OK ✓' || echo 'absent')"
-
-          # paper-global.yml doit être dans config/ (déjà le cas, pas besoin de copier)
-          # spigot.yml doit être à la RACINE du serveur, pas dans config/
           if [ -f config/spigot.yml ]; then
             cp config/spigot.yml spigot.yml
             echo "spigot.yml → racine ✓"
           fi
+          echo "server.properties : $([ -f server.properties ] && echo 'OK ✓' || echo 'absent')"
+          echo "ops.json          : $([ -f ops.json ] && echo 'OK ✓' || echo 'absent')"
+          echo "eula.txt          : $([ -f eula.txt ] && echo 'OK ✓' || echo 'absent')"
 
-          # Configs plugins : repo a des .yml dans plugins/PluginName/
-          # Le restore du drive a déjà extrait les .jar dans plugins/
-          # On applique les configs git PAR-DESSUS (sans toucher aux .jar)
-          if [ -d plugins ]; then
-            echo "Fusion configs plugins (git → runtime)..."
-            find "$REPO_DIR/plugins" -type f \
-              \( -name "*.yml" -o -name "*.yaml" \
-              -o -name "*.json" -o -name "*.conf" \
-              -o -name "*.properties" -o -name "*.toml" \) \
-              ! -name "plugin.yml" \
-              ! -name "plugin.yaml" \
-            2>/dev/null | while IFS= read -r src; do
-              # src = /home/runner/work/.../plugins/EssentialsX/config.yml
-              # dest = même chemin (déjà dans le workdir)
-              # Pas besoin de copier, les fichiers sont déjà là !
-              echo "  Config présente : ${src#$REPO_DIR/}"
-            done
-            echo "Configs plugins OK ✓ (déjà en place via git checkout)"
+      - name: Générer configs FAWE + Paper anti-crash
+        run: |
+          # ── FAWE config : limits pour 100M+ blocs sans crash ──
+          mkdir -p plugins/FastAsyncWorldEdit
+          cat > plugins/FastAsyncWorldEdit/config.yml << 'EOF'
+          enabled-components:
+            commands: true
+            default-locale: en
+          queue:
+            # Nombre de blocs traités par tick (élevé = plus rapide)
+            target-size: 65536
+            # Pas de limite sur les opérations
+            parallel-threads: 8
+            # Timeout très long pour les grosses opérations
+            discard-after-ms: 600000
+          history:
+            # Désactiver l'historique pour les très grosses ops
+            # (évite l'OOM sur 100M blocs)
+            use-disk: true
+            use-database: false
+            max-changes-per-second: 0
+          clipboard:
+            use-disk: true
+          lighting:
+            async: true
+            delay: 0
+          limits:
+            # Pas de limite de blocs
+            max-actions: -1
+            max-changes: -1
+            max-fails: -1
+            max-checks: -1
+            max-iterations: -1
+            max-blockstates: -1
+            max-entities: -1
+          EOF
+
+          # ── Paper : désactiver le watchdog qui crash ──
+          mkdir -p config
+          # paper-global.yml : timeouts très longs
+          if [ -f config/paper-global.yml ]; then
+            # Patch watchdog timeout
+            sed -i 's/watchdog-print-early-warning-delay:.*/watchdog-print-early-warning-delay: 60000/' \
+              config/paper-global.yml 2>/dev/null || true
+            sed -i 's/watchdog-print-early-warning-every:.*/watchdog-print-early-warning-every: 10000/' \
+              config/paper-global.yml 2>/dev/null || true
           fi
+
+          # ── spigot.yml : timeouts ──
+          if [ -f spigot.yml ]; then
+            sed -i 's/timeout-time:.*/timeout-time: 120/' spigot.yml 2>/dev/null || true
+            sed -i 's/restart-on-crash:.*/restart-on-crash: false/' spigot.yml 2>/dev/null || true
+          fi
+
+          # ── server.properties : optimisé build ──
+          if [ -f server.properties ]; then
+            sed -i 's/^view-distance=.*/view-distance=10/'           server.properties
+            sed -i 's/^simulation-distance=.*/simulation-distance=6/' server.properties
+            sed -i 's/^max-tick-time=.*/max-tick-time=-1/'           server.properties
+            sed -i 's/^sync-chunk-writes=.*/sync-chunk-writes=false/' server.properties
+          fi
+
+          echo "Configs anti-crash appliquées ✓"
 
       - name: Start playit
         run: |
@@ -177,18 +214,104 @@ jobs:
 
           echo "=== PLAYIT LOG ==="
           cat playit.log
-          echo "→ IP sur dashboard.playit.gg"
 
-      - name: Start server + watchdog
+      - name: Start server + watchdog + monitoring
         env:
           FINE_GRAINED_PAT: ${{ secrets.FINE_GRAINED_PAT }}
           REPO: ${{ github.repository }}
         run: |
           REPO_DIR="/home/runner/work/java-project/java-project"
+          MONITOR_LOG="$REPO_DIR/monitor.log"
+          RAM_TOTAL=$(grep MemTotal /proc/meminfo | awk '{print $2}')
 
           # ══════════════════════════════════════
-          # BACKUP : world (zstd-1) + plugins jars (zstd-3)
-          # Configs → dans git via commit_configs()
+          # MONITORING EN TEMPS RÉEL
+          # Écrit dans monitor.log toutes les 10s
+          # ══════════════════════════════════════
+          monitor_loop() {
+            while true; do
+              local NOW=$(date '+%H:%M:%S')
+              local TIMESTAMP=$(date +%s)
+
+              # RAM
+              local MEM_FREE=$(grep MemAvailable /proc/meminfo | awk '{print $2}')
+              local MEM_USED=$(( (RAM_TOTAL - MEM_FREE) / 1024 ))
+              local MEM_TOTAL_MB=$(( RAM_TOTAL / 1024 ))
+              local MEM_PCT=$(( (RAM_TOTAL - MEM_FREE) * 100 / RAM_TOTAL ))
+
+              # CPU (1s sample)
+              local CPU=$(top -bn1 | grep "Cpu(s)" | \
+                awk '{print $2 + $4}' 2>/dev/null || echo "0")
+
+              # JVM heap (via jcmd si dispo)
+              local JVM_HEAP="N/A"
+              if [ -n "$MC_PID_GLOBAL" ] && kill -0 $MC_PID_GLOBAL 2>/dev/null; then
+                JVM_HEAP=$(jcmd $MC_PID_GLOBAL GC.heap_info 2>/dev/null | \
+                  grep -oP 'used \K[0-9]+[KMG]' | head -1 || echo "N/A")
+              fi
+
+              # Disk
+              local DISK=$(df -h . | tail -1 | awk '{print $5}')
+
+              # TPS (depuis mc.log)
+              local TPS=$(grep -oP 'TPS from last [^:]+: \K[\d.]+' mc.log 2>/dev/null | \
+                tail -1 || echo "N/A")
+
+              # Swap
+              local SWAP_USED=$(free -m | grep Swap | awk '{print $3}')
+
+              # Écriture dans le log
+              echo "${TIMESTAMP}|${NOW}|CPU:${CPU}%|RAM:${MEM_USED}/${MEM_TOTAL_MB}MB(${MEM_PCT}%)|JVM:${JVM_HEAP}|TPS:${TPS}|DISK:${DISK}|SWAP:${SWAP_USED}MB" \
+                >> "$MONITOR_LOG"
+
+              # Alerte RAM critique (>90%)
+              if [ "$MEM_PCT" -gt 90 ] 2>/dev/null; then
+                echo "[⚠️  RAM CRITIQUE] ${MEM_USED}MB / ${MEM_TOTAL_MB}MB (${MEM_PCT}%)" \
+                  | tee -a "$MONITOR_LOG"
+              fi
+
+              sleep 10
+            done
+          }
+
+          # ══════════════════════════════════════
+          # AFFICHAGE MONITORING (toutes les 2min)
+          # ══════════════════════════════════════
+          display_stats() {
+            echo "╔══════════════════════════════════════════╗"
+            echo "║           STATS SERVEUR MC               ║"
+            echo "╠══════════════════════════════════════════╣"
+
+            local LAST=$(tail -1 "$MONITOR_LOG" 2>/dev/null)
+            if [ -n "$LAST" ]; then
+              local TIME=$(echo "$LAST" | cut -d'|' -f2)
+              local CPU=$(echo "$LAST" | cut -d'|' -f3)
+              local RAM=$(echo "$LAST" | cut -d'|' -f4)
+              local JVM=$(echo "$LAST" | cut -d'|' -f5)
+              local TPS=$(echo "$LAST" | cut -d'|' -f6)
+              local DISK=$(echo "$LAST" | cut -d'|' -f7)
+              local SWAP=$(echo "$LAST" | cut -d'|' -f8)
+
+              echo "║ 🕐 Heure    : $TIME"
+              echo "║ 🖥️  CPU      : $CPU"
+              echo "║ 🧠 RAM      : $RAM"
+              echo "║ ☕ JVM Heap : $JVM"
+              echo "║ ⚡ TPS      : $TPS"
+              echo "║ 💾 Disque   : $DISK"
+              echo "║ 🔄 Swap     : $SWAP"
+            fi
+
+            echo "╠══════════════════════════════════════════╣"
+            echo "║ 📋 MC LOG (5 dernières lignes)           ║"
+            echo "╠══════════════════════════════════════════╣"
+            tail -5 mc.log 2>/dev/null | while IFS= read -r line; do
+              echo "║ $line"
+            done
+            echo "╚══════════════════════════════════════════╝"
+          }
+
+          # ══════════════════════════════════════
+          # BACKUP
           # ══════════════════════════════════════
           backup() {
             local LABEL="${1:-periodic}"
@@ -208,7 +331,6 @@ jobs:
               local UP_W=$!
             fi
 
-            # Plugins : seulement les .jar, seulement si modifiés
             if [ -d plugins ]; then
               local CHANGED=0
               if [ -f plugins.tar.zst ]; then
@@ -219,18 +341,13 @@ jobs:
               fi
 
               if [ "$CHANGED" -gt 0 ]; then
-                echo "[BACKUP] Plugins .jar modifiés, compression..."
-                # Uniquement les .jar à la racine de plugins/
                 find plugins -maxdepth 1 -name "*.jar" -print0 \
                   | tar -cf - --null -T - 2>/dev/null \
                   | zstd -3 -T0 -fo plugins.tar.zst
-
                 rclone copy plugins.tar.zst rclone-mc:mc-backup/ \
                   --transfers=4 --multi-thread-streams=4 \
                   --buffer-size=128M --ignore-errors &
                 local UP_P=$!
-              else
-                echo "[BACKUP] Plugins .jar inchangés, skip ✓"
               fi
             fi
 
@@ -239,31 +356,22 @@ jobs:
           }
 
           # ══════════════════════════════════════
-          # COMMIT CONFIGS → GIT
-          # Sauvegarde les configs plugins générées
-          # par les plugins (nouveaux fichiers créés au runtime)
+          # COMMIT CONFIGS
           # ══════════════════════════════════════
           commit_configs() {
-            echo "[GIT] Sync configs plugins..."
+            echo "[GIT] Sync configs..."
             cd "$REPO_DIR"
-
             git config user.name  "MC Server Bot"
             git config user.email "bot@mc-server.local"
-
-            # Copier configs de plugins (sous-dossiers) vers git
-            # Les .jar sont ignorés via .gitignore
-            local CHANGED=false
 
             find plugins -mindepth 2 -type f \
               \( -name "*.yml" -o -name "*.yaml" \
               -o -name "*.json" -o -name "*.conf" \
               -o -name "*.properties" -o -name "*.toml" \) \
-              ! -name "plugin.yml" \
-              ! -name "plugin.yaml" \
+              ! -name "plugin.yml" ! -name "plugin.yaml" \
               2>/dev/null | while IFS= read -r f; do
-                # f est déjà dans REPO_DIR, pas besoin de copier
                 git add "$f" 2>/dev/null || true
-            done
+              done
 
             git add config/ server.properties ops.json 2>/dev/null || true
 
@@ -281,11 +389,14 @@ jobs:
           }
 
           # ══════════════════════════════════════
-          # START MC
+          # START MC — FLAGS OPTIMISÉS FAWE/BUILD
           # ══════════════════════════════════════
           start_mc() {
             /usr/lib/jvm/temurin-21-jdk-amd64/bin/java \
+              \
               -Xms13G -Xmx13G \
+              \
+              `# ── GC G1 Aikars ──` \
               -XX:+UseG1GC \
               -XX:+ParallelRefProcEnabled \
               -XX:MaxGCPauseMillis=200 \
@@ -304,13 +415,38 @@ jobs:
               -XX:SurvivorRatio=32 \
               -XX:MaxTenuringThreshold=1 \
               -XX:+PerfDisableSharedMem \
-              -XX:+UseStringDeduplication \
+              \
+              `# ── Threads ──` \
               -XX:ConcGCThreads=4 \
               -XX:ParallelGCThreads=8 \
+              \
+              `# ── Optimisations JVM ──` \
+              -XX:+UseStringDeduplication \
+              -XX:+OptimizeStringConcat \
+              -XX:+UseCompressedOops \
+              -XX:+UseCompressedClassPointers \
+              -XX:ReservedCodeCacheSize=512m \
+              -XX:+UseCodeCacheFlushing \
+              \
+              `# ── Anti-OOM pour FAWE 100M+ blocs ──` \
+              -XX:+HeapDumpOnOutOfMemoryError \
+              -XX:HeapDumpPath=/tmp/mc-oom.hprof \
+              -XX:+ExitOnOutOfMemoryError \
+              -XX:OnOutOfMemoryError="echo OOM_DETECTED" \
+              \
+              `# ── Watchdog Paper étendu ──` \
+              -Dpaper.watchdog.earlyWarningDelay=60000 \
+              -Dpaper.watchdog.earlyWarningEvery=10000 \
+              \
+              `# ── FAWE async ──` \
+              -Dcom.sk89q.worldedit.bukkit.AsyncChunkCompleteEvent=true \
+              \
+              `# ── Divers ──` \
               -Djava.net.preferIPv4Stack=true \
               -Dfile.encoding=UTF-8 \
               -Dusing.aikars.flags=https://mcflags.emc.gs \
               -Daikars.new.flags=true \
+              \
               -jar server.jar nogui \
               > mc.log 2>&1 &
             echo $!
@@ -320,6 +456,9 @@ jobs:
           # BOUCLE PRINCIPALE
           # ══════════════════════════════════════
           MC_PID=$(start_mc)
+          MC_PID_GLOBAL=$MC_PID
+          export MC_PID_GLOBAL
+
           START_TIME=$(date +%s)
           LAST_BACKUP=$(date +%s)
           LAST_CONFIG_COMMIT=$(date +%s)
@@ -327,6 +466,12 @@ jobs:
           LOOP=0
 
           echo "MC démarré (PID=$MC_PID) ✓"
+          echo "" > "$MONITOR_LOG"
+
+          # Lancer le monitoring en arrière-plan
+          monitor_loop &
+          MONITOR_PID=$!
+          echo "Monitoring démarré (PID=$MONITOR_PID) ✓"
 
           while true; do
             sleep 20
@@ -336,10 +481,9 @@ jobs:
             SINCE_BACKUP=$((NOW - LAST_BACKUP))
             SINCE_CONFIG=$((NOW - LAST_CONFIG_COMMIT))
 
-            # Log tail toutes les 5min
-            if [ $((LOOP % 15)) -eq 0 ]; then
-              echo "=== MC LOG [$(( ELAPSED/60 ))min] ==="
-              tail -5 mc.log 2>/dev/null || true
+            # Stats toutes les 2min (6 loops × 20s)
+            if [ $((LOOP % 6)) -eq 0 ]; then
+              display_stats
             fi
 
             # Backup toutes les 5min
@@ -357,25 +501,43 @@ jobs:
             # Watchdog
             if ! kill -0 $MC_PID 2>/dev/null; then
               CRASH_COUNT=$((CRASH_COUNT + 1))
-              echo "[WARN] Crash #$CRASH_COUNT"
-              tail -30 mc.log 2>/dev/null || true
+              echo "════════════════════════════════════"
+              echo "⚠️  CRASH #$CRASH_COUNT DÉTECTÉ"
+              echo "════════════════════════════════════"
+
+              # Afficher les stats au moment du crash
+              display_stats
+
+              echo "=== DERNIÈRES LIGNES MC LOG ==="
+              tail -50 mc.log 2>/dev/null || true
+
+              # OOM détecté ?
+              if grep -q "OutOfMemoryError\|OOM_DETECTED" mc.log 2>/dev/null; then
+                echo "💀 CAUSE : OutOfMemoryError (OOM)"
+                echo "→ La commande dépassait la RAM disponible"
+              fi
+
               if [ $CRASH_COUNT -ge 5 ]; then
                 echo "[ERROR] 5 crashs consécutifs, abandon"
                 backup "crash-final"
+                kill $MONITOR_PID 2>/dev/null
                 exit 1
               fi
+
               sleep 5
               MC_PID=$(start_mc)
+              MC_PID_GLOBAL=$MC_PID
               echo "Redémarré PID=$MC_PID"
             else
               CRASH_COUNT=0
             fi
 
-            # Relance 10min avant limite (350min → 340min = 20400s)
+            # Relance avant limite
             if [ $ELAPSED -ge 20400 ]; then
               echo "[INFO] Relance workflow ($(( ELAPSED/60 ))min)..."
               backup "pre-restart"
               commit_configs
+              kill $MONITOR_PID 2>/dev/null
 
               curl -s -X POST \
                 -H "Authorization: token $FINE_GRAINED_PAT" \
