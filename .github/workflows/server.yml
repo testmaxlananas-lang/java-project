@@ -11,23 +11,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Java
+      - name: Java 21
         run: sudo apt-get install -y openjdk-21-jre-headless
 
       - name: Setup rclone
         run: |
           curl https://rclone.org/install.sh | sudo bash
           mkdir -p ~/.config/rclone
-          echo "${{ secrets.RCLONE_CONF }}" > ~/.config/rclone/rclone.conf
+          printf '%s' "${{ secrets.RCLONE_CONF }}" > ~/.config/rclone/rclone.conf
 
       - name: Restore world
         run: |
           rclone copy rclone-mc:mc-backup/world.tar.zst . --ignore-errors || true
+          rclone copy rclone-mc:mc-backup/plugins.tar.zst . --ignore-errors || true
           if [ -f world.tar.zst ]; then
-            tar --zstd -xf world.tar.zst
-            echo "World restored"
+            tar --zstd -xf world.tar.zst && echo "World restored"
           else
-            echo "No backup found, fresh start"
+            echo "Fresh start"
+          fi
+          if [ -f plugins.tar.zst ]; then
+            tar --zstd -xf plugins.tar.zst && echo "Plugins restored"
           fi
 
       - name: Download Paper 1.21.10
@@ -35,39 +38,56 @@ jobs:
           wget -q -O server.jar \
             "https://api.papermc.io/v2/projects/paper/versions/1.21.10/builds/129/downloads/paper-1.21.10-129.jar"
 
-      - name: Install & start ngrok
+      - name: Start tunnel
         run: |
-          curl -sSL https://ngrok-agent.s3.amazonaws.com/ngrok.asc \
-            | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
-          echo "deb https://ngrok-agent.s3.amazonaws.com buster main" \
-            | sudo tee /etc/apt/sources.list.d/ngrok.list
-          sudo apt-get update -qq && sudo apt-get install -y ngrok
-          ngrok authtoken ${{ secrets.NGROK_TOKEN }}
-          ngrok tcp 25565 --log=stdout > ngrok.log &
+          ssh -o StrictHostKeyChecking=no \
+              -o ServerAliveInterval=60 \
+              -R 25565:localhost:25565 \
+              nokey@localhost.run 2>&1 | tee tunnel.log &
           sleep 8
-          curl -s http://localhost:4040/api/tunnels \
-            | python3 -c "
-          import sys, json
-          data = json.load(sys.stdin)
-          addr = data['tunnels'][0]['public_url']
-          print('=== TON IP MINECRAFT ===')
-          print(addr.replace('tcp://', ''))
-          print('========================')
-          "
+          IP=$(grep -o '[a-z0-9]*\.lhr\.life' tunnel.log | head -1)
+          echo "==============================="
+          echo "  IP : ${IP}:25565"
+          echo "==============================="
 
       - name: Start server
         run: |
-          java -Xmx5G -Xms2G \
+          java \
+            -Xms6G -Xmx6G \
+            \
             -XX:+UseG1GC \
             -XX:+ParallelRefProcEnabled \
             -XX:MaxGCPauseMillis=200 \
+            -XX:+UnlockExperimentalVMOptions \
+            -XX:+DisableExplicitGC \
+            -XX:+AlwaysPreTouch \
+            -XX:G1NewSizePercent=30 \
+            -XX:G1MaxNewSizePercent=40 \
+            -XX:G1HeapRegionSize=8M \
+            -XX:G1ReservePercent=20 \
+            -XX:G1HeapWastePercent=5 \
+            -XX:G1MixedGCCountTarget=4 \
+            -XX:InitiatingHeapOccupancyPercent=15 \
+            -XX:G1MixedGCLiveThresholdPercent=90 \
+            -XX:G1RSetUpdatingPauseTimePercent=5 \
+            -XX:SurvivorRatio=32 \
+            -XX:+PerfDisableSharedMem \
+            -XX:MaxTenuringThreshold=1 \
+            \
+            -Dusing.aikars.flags=https://mcflags.emc.gs \
+            -Daikars.new.flags=true \
+            \
             -jar server.jar nogui
 
-      - name: Backup world
+      - name: Backup world + plugins
         if: always()
         run: |
           if [ -d world ]; then
             tar --zstd -cf world.tar.zst world/
             rclone copy world.tar.zst rclone-mc:mc-backup/
-            echo "Backup done"
           fi
+          if [ -d plugins ]; then
+            tar --zstd -cf plugins.tar.zst plugins/
+            rclone copy plugins.tar.zst rclone-mc:mc-backup/
+          fi
+          echo "Backup done"
