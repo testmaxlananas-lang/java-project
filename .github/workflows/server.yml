@@ -2,6 +2,8 @@ name: server
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '0 */5 * * *'
 
 jobs:
   run:
@@ -10,9 +12,14 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+          token: ${{ secrets.FINE_GRAINED_PAT }}
 
-      - name: Setup rclone
+      - name: Setup
         run: |
+          sudo apt-get install -y zstd pigz --quiet
           curl -s https://rclone.org/install.sh | sudo bash
           mkdir -p ~/.config/rclone
           echo "${{ secrets.RCLONE_CONF_B64 }}" | base64 -d > ~/.config/rclone/rclone.conf
@@ -21,84 +28,115 @@ jobs:
         run: |
           rclone copy rclone-mc:mc-backup/world.tar.zst . --ignore-errors || true
           rclone copy rclone-mc:mc-backup/plugins.tar.zst . --ignore-errors || true
-          [ -f world.tar.zst ] && tar --zstd -xf world.tar.zst && echo "World restored" || echo "Fresh start"
-          [ -f plugins.tar.zst ] && tar --zstd -xf plugins.tar.zst && echo "Plugins restored" || true
-
-      - name: Cache Paper jar
-        uses: actions/cache@v4
-        with:
-          path: paper.jar
-          key: paper-1.21.10-129
+          [ -f world.tar.zst ] && tar --use-compress-program="zstd -d" -xf world.tar.zst && echo "World restored" || echo "Fresh start"
+          [ -f plugins.tar.zst ] && tar --use-compress-program="zstd -d" -xf plugins.tar.zst && echo "Plugins restored" || true
 
       - name: Download Paper 1.21.10
         run: |
-          if [ ! -f paper.jar ]; then
-            wget -q -O paper.jar \
-              "https://api.papermc.io/v2/projects/paper/versions/1.21.10/builds/129/downloads/paper-1.21.10-129.jar"
-            echo "Downloaded fresh"
-          else
-            echo "Using cached jar"
-          fi
-          cp paper.jar server.jar
+          wget -q -O server.jar \
+            "https://api.papermc.io/v2/projects/paper/versions/1.21.10/builds/129/downloads/paper-1.21.10-129.jar"
 
-      - name: Cache Mojang jar
+      - name: Start playit
         run: |
-          mkdir -p cache
-          if [ -f cache/mojang_1.21.10.jar ]; then
-            mkdir -p versions/1.21.10
-            cp cache/mojang_1.21.10.jar versions/1.21.10/mojang_1.21.10.jar
-            echo "Mojang jar pre-cached"
-          fi
-
-      - name: Tunnel TCP
-        run: |
-          pip install openport --quiet
-          python3 -c "
-          import openport, threading, time
-          s = openport.OpenPort()
-          s.start(local_port=25565)
-          time.sleep(10)
-          print('=== IP :', s.server_url, '===')
-          import signal, os
-          os.kill(os.getpid(), signal.SIGSTOP)
-          " &
+          chmod +x ./playit-linux-amd64
+          printf '%s' '${{ secrets.PLAYIT_SECRET }}' > playit.toml
+          ./playit-linux-amd64 --secret_path playit.toml > playit.log 2>&1 &
           sleep 20
+          echo "=== PLAYIT ==="
+          cat playit.log
 
-      - name: Start Paper
+      - name: Start server + loop
+        env:
+          FINE_GRAINED_PAT: ${{ secrets.FINE_GRAINED_PAT }}
+          REPO: ${{ github.repository }}
         run: |
-          /usr/lib/jvm/temurin-21-jdk-amd64/bin/java \
-            -Xms6G -Xmx6G \
-            -XX:+UseG1GC \
-            -XX:+ParallelRefProcEnabled \
-            -XX:MaxGCPauseMillis=200 \
-            -XX:+UnlockExperimentalVMOptions \
-            -XX:+DisableExplicitGC \
-            -XX:+AlwaysPreTouch \
-            -XX:G1NewSizePercent=30 \
-            -XX:G1MaxNewSizePercent=40 \
-            -XX:G1HeapRegionSize=8M \
-            -XX:G1ReservePercent=20 \
-            -XX:G1HeapWastePercent=5 \
-            -XX:G1MixedGCCountTarget=4 \
-            -XX:InitiatingHeapOccupancyPercent=15 \
-            -XX:G1MixedGCLiveThresholdPercent=90 \
-            -XX:G1RSetUpdatingPauseTimePercent=5 \
-            -XX:SurvivorRatio=32 \
-            -XX:+PerfDisableSharedMem \
-            -XX:MaxTenuringThreshold=1 \
-            -Dusing.aikars.flags=https://mcflags.emc.gs \
-            -Daikars.new.flags=true \
-            -jar server.jar nogui
+          backup() {
+            echo "[BACKUP] Compression zstd niveau 19..."
+            if [ -d world ]; then
+              tar --use-compress-program="zstd -19 -T0" -cf world.tar.zst \
+                --exclude='world/session.lock' world/ 2>/dev/null
+              rclone copy world.tar.zst rclone-mc:mc-backup/ \
+                --transfers=4 --ignore-errors || true
+            fi
+            if [ -d plugins ]; then
+              tar --use-compress-program="zstd -19 -T0" -cf plugins.tar.zst \
+                plugins/ 2>/dev/null
+              rclone copy plugins.tar.zst rclone-mc:mc-backup/ \
+                --transfers=4 --ignore-errors || true
+            fi
+            echo "[BACKUP] Done"
+          }
 
-      - name: Backup world + plugins
+          start_mc() {
+            /usr/lib/jvm/temurin-21-jdk-amd64/bin/java \
+              -Xms6G -Xmx6G \
+              -XX:+UseG1GC \
+              -XX:+ParallelRefProcEnabled \
+              -XX:MaxGCPauseMillis=200 \
+              -XX:+UnlockExperimentalVMOptions \
+              -XX:+DisableExplicitGC \
+              -XX:+AlwaysPreTouch \
+              -XX:G1NewSizePercent=30 \
+              -XX:G1MaxNewSizePercent=40 \
+              -XX:G1HeapRegionSize=8M \
+              -XX:G1ReservePercent=20 \
+              -XX:G1HeapWastePercent=5 \
+              -XX:G1MixedGCCountTarget=4 \
+              -XX:InitiatingHeapOccupancyPercent=15 \
+              -XX:G1MixedGCLiveThresholdPercent=90 \
+              -XX:G1RSetUpdatingPauseTimePercent=5 \
+              -XX:SurvivorRatio=32 \
+              -XX:+PerfDisableSharedMem \
+              -XX:MaxTenuringThreshold=1 \
+              -Dusing.aikars.flags=https://mcflags.emc.gs \
+              -Daikars.new.flags=true \
+              -jar server.jar nogui &
+            echo $!
+          }
+
+          MC_PID=$(start_mc)
+          START_TIME=$(date +%s)
+          LAST_BACKUP=0
+
+          while true; do
+            sleep 30
+            NOW=$(date +%s)
+            ELAPSED=$((NOW - START_TIME))
+            SINCE_BACKUP=$((NOW - LAST_BACKUP))
+
+            # Backup toutes les 5 minutes
+            if [ $SINCE_BACKUP -ge 300 ]; then
+              backup
+              LAST_BACKUP=$(date +%s)
+            fi
+
+            # Redémarre si crash
+            if ! kill -0 $MC_PID 2>/dev/null; then
+              echo "[WARN] Serveur crash, redémarrage..."
+              MC_PID=$(start_mc)
+            fi
+
+            # Relance le workflow 10min avant limite
+            if [ $ELAPSED -ge 18600 ]; then
+              echo "[INFO] Relance workflow..."
+              backup
+              curl -s -X POST \
+                -H "Authorization: token $FINE_GRAINED_PAT" \
+                -H "Accept: application/vnd.github.v3+json" \
+                "https://api.github.com/repos/$REPO/actions/workflows/server.yml/dispatches" \
+                -d '{"ref":"main"}'
+              sleep 10
+              kill $MC_PID 2>/dev/null
+              exit 0
+            fi
+          done
+
+      - name: Backup final
         if: always()
         run: |
-          if [ -d world ]; then
-            tar --zstd -cf world.tar.zst world/
-            rclone copy world.tar.zst rclone-mc:mc-backup/
-          fi
-          if [ -d plugins ]; then
-            tar --zstd -cf plugins.tar.zst plugins/
-            rclone copy plugins.tar.zst rclone-mc:mc-backup/
-          fi
-          echo "Backup done"
+          [ -d world ] && tar --use-compress-program="zstd -19 -T0" -cf world.tar.zst \
+            --exclude='world/session.lock' world/ && \
+            rclone copy world.tar.zst rclone-mc:mc-backup/ || true
+          [ -d plugins ] && tar --use-compress-program="zstd -19 -T0" -cf plugins.tar.zst \
+            plugins/ && rclone copy plugins.tar.zst rclone-mc:mc-backup/ || true
+          echo "Done"
