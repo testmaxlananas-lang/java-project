@@ -11,18 +11,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Java 21
+      - name: Force Java 21
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y openjdk-21-jdk-headless
+          sudo update-alternatives --set java /usr/lib/jvm/java-21-openjdk-amd64/bin/java
           java -version
 
       - name: Setup rclone
         run: |
-           curl https://rclone.org/install.sh | sudo bash
-           mkdir -p ~/.config/rclone
-           echo "${{ secrets.RCLONE_CONF_B64 }}" | base64 -d > ~/.config/rclone/rclone.conf
-
+          curl https://rclone.org/install.sh | sudo bash
+          mkdir -p ~/.config/rclone
+          echo "${{ secrets.RCLONE_CONF_B64 }}" | base64 -d > ~/.config/rclone/rclone.conf
+          cat ~/.config/rclone/rclone.conf
 
       - name: Restore world
         run: |
@@ -36,21 +35,24 @@ jobs:
           wget -q -O server.jar \
             "https://api.papermc.io/v2/projects/paper/versions/1.21.10/builds/129/downloads/paper-1.21.10-129.jar"
 
-      - name: Install & start tunnel TCP (serveo)
+      - name: Tunnel TCP via serveo
         run: |
           ssh -o StrictHostKeyChecking=no \
               -o ServerAliveInterval=30 \
-              -o ServerAliveCountMax=999 \
-              -R 25565:localhost:25565 \
+              -o ServerAliveCountMax=9999 \
+              -R 0:localhost:25565 \
               serveo.net 2>&1 | tee tunnel.log &
-          sleep 10
-          IP=$(grep -o 'Forwarding TCP.*' tunnel.log | grep -o '[0-9]*\.serveo\.net:[0-9]*' | head -1)
+          sleep 12
+          cat tunnel.log
+          IP=$(grep -oP 'Forwarding TCP connections from \K\S+' tunnel.log | head -1)
           echo "==============================="
-          echo "  IP : ${IP}"
+          echo "  IP MINECRAFT : ${IP}"
           echo "==============================="
 
       - name: Start server
         run: |
+          export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+          export PATH=$JAVA_HOME/bin:$PATH
           java \
             -Xms6G -Xmx6G \
             -XX:+UseG1GC \
@@ -75,7 +77,7 @@ jobs:
             -Daikars.new.flags=true \
             -jar server.jar nogui
 
-      - name: Backup world + plugins
+      - name: Backup
         if: always()
         run: |
           [ -d world ] && tar --zstd -cf world.tar.zst world/ && rclone copy world.tar.zst rclone-mc:mc-backup/ || true
