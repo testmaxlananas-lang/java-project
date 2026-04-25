@@ -3,53 +3,46 @@ header-footer:
   designs:
     default:
       header:
-        - "<#00FFFF>&m        &r <#00FFFF>&l⚡ BUILD SERVER &r<#00FFFF>&m        "
-        - ""
-        - "&f%animation:Welcome% &b&l%player%&f !"
-        - "&7Joueurs en ligne &f» &b%online%&f/&b10"
-        - ""
+      - '<#00FFFF>&m        &r <#00FFFF>&l⚡ BUILD SERVER &r<#00FFFF>&m        '
+      - ''
+      - '&f%animation:Welcome% &b&l%player%&f !'
+      - '&7Joueurs en ligne &f» &b%online%&f/&b10'
+      - ''
       footer:
-        - "&7%animation:time%"
-        - "&7Ping &f» &b%ping%ms &f| &7RAM &f» &b%memory-used%&f/&b%memory-max% MB"
-        - ""
-        - "<#00FFFF>&m        &r &3&lFAWE &8• &5&lAxiom &8• &d&lEzEdits &r<#00FFFF>&m        "
-
+      - '&7%animation:time%'
+      - '&7Ping &f» &b%ping%ms &f| &7RAM &f» &b%memory-used%&f/&b%memory-max% MB'
+      - ''
+      - '<#00FFFF>&m        &r &3&lFAWE &8• &5&lAxiom &8• &d&lEzEdits &r<#00FFFF>&m        '
 tablist-name-formatting:
   enabled: true
   disable-condition: '%world%=disabledworld'
-
 scoreboard-teams:
   enabled: true
-  enable-collision: false   # Désactivé : serveur build, collision inutile
+  enable-collision: false
   invisible-nametags: false
   sorting-types:
-    - "PLACEHOLDER_A_TO_Z:%player%"
+  - PLACEHOLDER_A_TO_Z:%player%
   case-sensitive-sorting: false
   can-see-friendly-invisibles: false
   disable-condition: '%world%=disabledworld'
-
 playerlist-objective:
   enabled: true
-  value: "%ping%"
-  fancy-value: "&b%ping%&7ms"
-  title: "Ping"
+  value: '%ping%'
+  fancy-value: '&b%ping%&7ms'
+  title: Ping
   render-type: INTEGER
   disable-condition: '%world%=disabledworld'
-
 belowname-objective:
   enabled: false
-  value: "%health%"
-  title: "&cHealth"
-  fancy-value: "&c%health%"
-  fancy-value-default: "NPC"
+  value: '%health%'
+  title: '&cHealth'
+  fancy-value: '&c%health%'
+  fancy-value-default: NPC
   disable-condition: '%world%=disabledworld'
-
 prevent-spectator-effect:
-  enabled: true             # Activé : évite l'effet spectateur dans la tab
-
+  enabled: true
 bossbar:
   enabled: false
-
 scoreboard:
   enabled: true
   toggle-command: /sb
@@ -60,73 +53,62 @@ scoreboard:
   delay-on-join-milliseconds: 500
   scoreboards:
     build-server:
-      title: "<#00FFFF>✦ &lBuild Server<#00FFFF> ✦"
+      title: <#00FFFF>✦ &lBuild Server<#00FFFF> ✦
       lines:
-        - "&8&m                     "
-        - " &7Date &f» &b%date%"
-        - " &7Heure &f» &b%time%"
-        - "&8&m                     "
-        - " &f&lServeur"
-        - " &7En ligne &f» &b%online%&7/&b10"
-        - " &7TPS &f» &b%server_tps_1_colored%"
-        - " &7RAM &f» &b%memory-used%&f/&b%memory-max%&7MB"
-        - "&8&m                     "
-        - " &f&lToi"
-        - " &7Ping &f» &b%ping%&7ms"
-        - " &7Monde &f» &b%world%"
-        - "&8&m                     "
-        - "%animation:MyAnimation1%"
-
+      - '&8&m                     '
+      - ' &7Date &f» &b%date%'
+      - ' &7Heure &f» &b%time%'
+      - '&8&m                     '
+      - ' &f&lServeur'
+      - ' &7En ligne &f» &b%online%&7/&b10'
+      - ' &7TPS &f» &b%server_tps_1_colored%'
+      - ' &7RAM &f» &b%memory-used%&f/&b%memory-max%&7MB'
+      - '&8&m                     '
+      - ' &f&lToi'
+      - ' &7Ping &f» &b%ping%&7ms'
+      - ' &7Monde &f» &b%world%'
+      - '&8&m                     '
+      - '%animation:MyAnimation1%'
 layout:
   enabled: false
-
 ping-spoof:
   enabled: false
   value: 0
-
 global-playerlist:
   enabled: false
-
+  update-latency: false
 placeholders:
-  date-format: "dd/MM/yyyy"
-  time-format: "HH:mm:ss"
+  date-format: dd/MM/yyyy
+  time-format: HH:mm:ss
   time-offset: 0
   register-tab-expansion: false
-
 placeholder-output-replacements:
-  "%essentials_vanished%":
-    "yes": " &8[&7Vanish&8]"
-    "no": ""
-
+  '%essentials_vanished%':
+    'yes': ' &8[&7Vanish&8]'
+    'no': ''
 conditions:
   nick:
     conditions:
-      - "%player%=%essentials_nickname%"
-    true: "%player%"
-    false: "~%essentials_nickname%"
-
+    - '%player%=%essentials_nickname%'
+    true: '%player%'
+    false: ~%essentials_nickname%
 placeholder-refresh-intervals:
   default-refresh-interval: 500
-  "%server_tps_1_colored%": 1000
-  "%memory-used%": 2000
-  "%memory-max%": 60000         # Toutes les 60s (ne change pas souvent)
-  "%player_ping%": 1000
-  "%online%": 1000
-
+  '%server_tps_1_colored%': 1000
+  '%memory-used%': 2000
+  '%memory-max%': 60000
+  '%player_ping%': 1000
+  '%online%': 1000
 assign-groups-by-permissions: false
-
 primary-group-finding-list:
-  - Owner
-  - Admin
-  - Mod
-  - Helper
-  - Builder
-  - default
-
-permission-refresh-interval: 5000  # Toutes les 5s au lieu de 1s (gain perf)
-
+- Owner
+- Admin
+- Mod
+- Helper
+- Builder
+- default
+permission-refresh-interval: 5000
 debug: false
-
 mysql:
   enabled: false
   host: 127.0.0.1
@@ -135,19 +117,14 @@ mysql:
   username: user
   password: password
   useSSL: true
-
 proxy-support:
-  enabled: false            # Pas de proxy sur ce setup
-
+  enabled: false
 components:
   minimessage-support: true
   disable-shadow-for-heads: true
-
 config-version: 2
-
 per-world-playerlist:
   enabled: false
-
 compensate-for-packetevents-bug: false
 use-bukkit-permissions-manager: false
 use-online-uuid-in-tablist: true

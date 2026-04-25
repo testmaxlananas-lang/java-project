@@ -1,8 +1,22 @@
-_version: 31
+# This is the world defaults configuration file for Paper.
+# As you can see, there's a lot to configure. Some options may impact gameplay, so use
+# with caution, and make sure you know what each option does before configuring.
+# 
+# If you need help with the configuration or have any questions related to Paper,
+# join us in our Discord or check the docs page.
+# 
+# Configuration options here apply to all worlds, unless you specify overrides inside
+# the world-specific config file inside each world folder.
+# 
+# File Reference: https://docs.papermc.io/paper/reference/world-configuration/
+# Docs: https://docs.papermc.io/
+# Discord: https://discord.gg/papermc
+# Website: https://papermc.io/
 
+_version: 31
 anticheat:
   anti-xray:
-    enabled: false         # Serveur build privé, inutile
+    enabled: false
     engine-mode: 1
     hidden-blocks:
     - copper_ore
@@ -36,10 +50,9 @@ anticheat:
     - deepslate
     update-radius: 2
     use-permission: false
-
 chunks:
-  auto-save-interval: 6000       # Sauvegarde toutes les 5min (=300s × 20tps)
-  delay-chunk-unloads-by: 30s    # Garde les chunks en mémoire plus longtemps → moins de rechargement
+  auto-save-interval: '6000'
+  delay-chunk-unloads-by: 30s
   entity-per-chunk-save-limit:
     arrow: -1
     ender_pearl: -1
@@ -49,29 +62,26 @@ chunks:
     snowball: -1
   fixed-chunk-inhabited-time: -1
   flush-regions-on-save: false
-  max-auto-save-chunks-per-tick: 64   # Augmenté : on a les ressources, autant sauvegarder vite
+  max-auto-save-chunks-per-tick: 64
   prevent-moving-into-unloaded-chunks: false
-
 collisions:
   allow-player-cramming-damage: false
   allow-vehicle-collisions: true
   fix-climbing-bypassing-cramming-rule: false
-  max-entity-collisions: 2       # Réduit : serveur build, les collisions ne sont pas critiques
+  max-entity-collisions: 2
   only-players-collide: false
-
 command-blocks:
   force-follow-perm-level: true
   permissions-level: 2
-
 entities:
   armor-stands:
-    do-collision-entity-lookups: false  # Pas besoin sur un serveur build
+    do-collision-entity-lookups: false
     tick: true
   behavior:
     allow-spider-world-border-climbing: true
     baby-zombie-movement-modifier: 0.5
     cooldown-failed-beehive-releases: true
-    disable-chest-cat-detection: true   # Optimisation légère
+    disable-chest-cat-detection: true
     disable-creeper-lingering-effect: false
     disable-player-crits: false
     door-breaking-difficulty:
@@ -87,7 +97,7 @@ entities:
       zombified_piglin:
       - HARD
     ender-dragons-death-always-places-dragon-egg: false
-    experience-merge-max-value: 1000    # Merge les XP orbs agressivement
+    experience-merge-max-value: 1000
     mobs-can-always-pick-up-loot:
       skeletons: false
       zombies: false
@@ -100,7 +110,7 @@ entities:
     phantoms-spawn-attempt-min-seconds: 60
     piglins-guard-chests: true
     pillager-patrols:
-      disable: true              # Désactivé : serveur build, pas de patrouilles
+      disable: true
       spawn-chance: 0.2
       spawn-delay:
         per-player: false
@@ -115,7 +125,7 @@ entities:
     zombie-villager-infection-chance: default
     zombies-target-turtle-eggs: true
   markers:
-    tick: false                  # Les markers n'ont pas besoin de tick
+    tick: false
   mob-effects:
     immune-to-wither-effect:
       wither: true
@@ -127,18 +137,18 @@ entities:
   spawning:
     all-chunks-are-slime-chunks: false
     alt-item-despawn-rate:
-      enabled: true              # Activer pour nettoyer les items rapidement
+      enabled: true
       items:
-        cobblestone: 300         # 15s au lieu de 5min
-        netherrack: 300
-        dirt: 300
-        gravel: 300
-        sand: 300
         andesite: 300
+        cobblestone: 300
         diorite: 300
+        dirt: 300
         granite: 300
+        gravel: 300
+        netherrack: 300
+        sand: 300
     count-all-mobs-for-spawning: false
-    creative-arrow-despawn-rate: 20   # Despawn rapide des flèches en créatif
+    creative-arrow-despawn-rate: '20'
     despawn-range-shape: ELLIPSOID
     despawn-ranges:
       ambient:
@@ -179,9 +189,9 @@ entities:
     - sleeping_pos
     iron-golems-can-spawn-in-air: false
     monster-spawn-max-light-level: default
-    non-player-arrow-despawn-rate: 60  # Despawn rapide
+    non-player-arrow-despawn-rate: '60'
     per-player-mob-spawns: true
-    scan-for-legacy-ender-dragon: false  # Inutile sur un serveur build récent
+    scan-for-legacy-ender-dragon: false
     skeleton-horse-thunder-spawn-chance: default
     slime-spawn-height:
       slime-chunk:
@@ -190,7 +200,7 @@ entities:
         maximum: 70.0
         minimum: 50.0
     spawn-limits:
-      ambient: 1                 # Minimal, c'est un serveur build
+      ambient: 1
       axolotls: 1
       creature: 5
       monster: 5
@@ -222,7 +232,6 @@ entities:
     monster: default
     other: default
     player: default
-
 environment:
   disable-explosion-knockback: false
   disable-ice-and-snow: false
@@ -238,39 +247,34 @@ environment:
   max-block-ticks: 65536
   max-fluid-ticks: 65536
   nether-ceiling-void-damage-height: disabled
-  optimize-explosions: true      # ACTIVÉ : optimise le calcul des explosions
+  optimize-explosions: true
   portal-create-radius: 16
   portal-search-radius: 128
   portal-search-vanilla-dimension-scaling: true
   treasure-maps:
-    enabled: false               # Désactivé : génère des chunks inutilement
+    enabled: false
     find-already-discovered:
       loot-tables: default
       villager-trade: false
   void-damage-amount: 4.0
   void-damage-min-build-height-offset: -64.0
   water-over-lava-flow-speed: 5
-
 feature-seeds:
   generate-random-seeds-for-all: false
-
 fishing-time-range:
   maximum: 600
   minimum: 100
-
 fixes:
   disable-unloaded-chunk-enderpearl-exploit: true
   falling-block-height-nerf: disabled
-  fix-items-merging-through-walls: true   # Évite des duplication bugs
+  fix-items-merging-through-walls: true
   prevent-tnt-from-moving-in-water: false
   split-overstacked-loot: true
   tnt-entity-height-nerf: disabled
-
 hopper:
   cooldown-when-full: true
-  disable-move-event: true       # GROS gain de performance : désactive les events hopper
-  ignore-occluding-blocks: true  # Légère optimisation
-
+  disable-move-event: true
+  ignore-occluding-blocks: true
 lootables:
   auto-replenish: false
   max-refills: -1
@@ -280,50 +284,43 @@ lootables:
   restrict-player-reloot: true
   restrict-player-reloot-time: disabled
   retain-unlooted-shulker-box-loot-table-on-non-player-break: true
-
 maps:
   item-frame-cursor-limit: 128
   item-frame-cursor-update-interval: 10
-
 max-growth-height:
   bamboo:
     max: 16
     min: 11
   cactus: 3
   reeds: 3
-
 misc:
   allow-remote-ender-dragon-respawning: false
   alternate-current-update-order: HORIZONTAL_FIRST_OUTWARD
-  disable-end-credits: true      # Inutile
+  disable-end-credits: true
   disable-relative-projectile-velocity: false
-  disable-sprint-interruption-on-attack: true  # QoL pour les builders
+  disable-sprint-interruption-on-attack: true
   legacy-ender-pearl-behavior: false
   max-leash-distance: default
-  redstone-implementation: ALTERNATE_CURRENT  # Plus performant que VANILLA
+  redstone-implementation: ALTERNATE_CURRENT
   show-sign-click-command-failure-msgs-to-player: false
-  update-pathfinding-on-block-update: false  # Gros gain perf : les mobs ne recalculent pas à chaque bloc placé
-
+  update-pathfinding-on-block-update: false
 scoreboards:
   allow-non-player-entities-on-scoreboards: true
   use-vanilla-world-scoreboard-name-coloring: false
-
 spawn:
   allow-using-signs-inside-spawn-protection: false
-
 tick-rates:
   behavior:
     villager:
-      validatenearbypoi: 600     # Toutes les 30s au lieu de chaque tick
+      validatenearbypoi: 600
   container-update: 1
-  dry-farmland: 500              # Très lent, peu important
-  grass-spread: 4                # Légèrement ralenti
-  mob-spawner: 20                # Spawner tick toutes les 1s (inutile d'être plus rapide)
+  dry-farmland: 500
+  grass-spread: 4
+  mob-spawner: 20
   sensor:
     villager:
-      secondarypoisensor: 80     # Réduit la fréquence de check des villageois
+      secondarypoisensor: 80
   wet-farmland: 500
-
 unsupported-settings:
-  disable-world-ticking-when-empty: true   # ACTIVÉ : économise du CPU quand personne n'est en ligne
+  disable-world-ticking-when-empty: true
   fix-invulnerable-end-crystal-exploit: true
