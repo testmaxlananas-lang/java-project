@@ -1,4 +1,15 @@
 {
   "_header": "spark configuration file - https://spark.lucko.me/docs/Configuration",
-  "backgroundProfiler": true
+
+  "backgroundProfiler": true,
+
+  "backgroundProfilerInterval": 60,
+
+  "backgroundProfilerEngine": "async-profiler",
+
+  "notifyViewerLinks": true,
+
+  "enableImmediately": true,
+
+  "backgroundMemoryPollInterval": 120
 }
