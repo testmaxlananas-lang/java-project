@@ -1,13 +1,12 @@
-# Ignorer les .jar (drive uniquement, trop lourds pour git)
+# Ignorer les .jar (trop lourds)
 *.jar
 
-# Ignorer les données runtime
+# Ignorer données runtime
 **/data/
 **/cache/
-**/logs/
 **/*.db
 **/*.db-journal
-**/*.sqlite
+**/logs/
 
 # Garder les configs
 !**/*.yml
