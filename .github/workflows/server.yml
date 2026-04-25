@@ -25,49 +25,19 @@ jobs:
           token: ${{ secrets.FINE_GRAINED_PAT }}
 
       # ════════════════════════════════════════════════════════════
-      # ÉTAPE 1 — Sauvegarder les configs du repo
-      # DOIT être fait AVANT le restore du drive
+      # ÉTAPE 1 — Sauvegarder le snapshot complet du repo
       # ════════════════════════════════════════════════════════════
       - name: Sauvegarder configs repo
         run: |
           set -euo pipefail
 
-          CONFIGS=(
-            "server.properties"
-            "ops.json"
-            "eula.txt"
-            "config/spigot.yml"
-            "config/paper-global.yml"
-            "config/paper-world-defaults.yml"
-            "plugins/FastAsyncWorldEdit/config.yml"
-            "plugins/FastAsyncWorldEdit/worldedit-config.yml"
-            "plugins/FastAsyncVoxelSniper/config.yml"
-            "plugins/ezEdits/config.yml"
-            "plugins/AxiomPaper/config.yml"
-            "plugins/Arceon/config.yml"
-            "plugins/TAB/config.yml"
-            "plugins/TAB/animations.yml"
-            "plugins/ExpertBuild/config.yml"
-            "plugins/Chunky/config.yml"
-          )
-
-          SAVED=0
-          MISSING=0
-
-          for cfg in "${CONFIGS[@]}"; do
-            if [ -f "$cfg" ]; then
-              mkdir -p "/tmp/repo-configs/$(dirname "$cfg")"
-              cp "$cfg" "/tmp/repo-configs/$cfg"
-              echo "  ✓ $cfg"
-              SAVED=$((SAVED + 1))
-            else
-              echo "  ○ absent (normal si 1er run) : $cfg"
-              MISSING=$((MISSING + 1))
-            fi
-          done
-
-          echo ""
-          echo "Sauvegarde : ${SAVED} fichiers OK, ${MISSING} absents"
+          # Sauvegarder L'INTÉGRALITÉ du repo dans /tmp
+          # Ainsi TOUT fichier versionné dans git aura priorité
+          # sur le drive, peu importe lequel
+          echo "Sauvegarde complète du repo..."
+          mkdir -p /tmp/repo-snapshot
+          cp -r . /tmp/repo-snapshot/
+          echo "Snapshot repo : $(find /tmp/repo-snapshot -type f | wc -l) fichiers ✓"
 
       # ════════════════════════════════════════════════════════════
       # ÉTAPE 2 — Setup système : rclone + kernel + swap + java
@@ -128,7 +98,6 @@ jobs:
             2>/dev/null || true
 
           # ── Transparent Huge Pages (THP) ─────────────────────
-          # madvise = Java gère lui-même les huge pages → meilleur
           echo madvise | sudo tee /sys/kernel/mm/transparent_hugepage/enabled \
             > /dev/null 2>&1 || true
           echo defer+madvise | sudo tee \
@@ -254,71 +223,47 @@ jobs:
 
       # ════════════════════════════════════════════════════════════
       # ÉTAPE 5 — Appliquer les configs du repo PAR-DESSUS le drive
-      # Le repo a TOUJOURS priorité sur le drive
       # ════════════════════════════════════════════════════════════
       - name: Appliquer configs
         run: |
           set -uo pipefail
+          echo "=== Restauration snapshot repo PAR-DESSUS le drive ==="
 
-          echo "=== Application des configs versionnées ==="
+          # Restaurer TOUS les fichiers du repo par-dessus le drive
+          # Le drive peut avoir des fichiers supplémentaires (world/, data joueurs...)
+          # mais tout ce qui était dans le repo au démarrage est restauré
 
-          # spigot.yml → doit être à la RACINE du serveur
-          if [ -f /tmp/repo-configs/config/spigot.yml ]; then
-            cp /tmp/repo-configs/config/spigot.yml spigot.yml
-            echo "  ✓ spigot.yml (racine)"
-          fi
+          find /tmp/repo-snapshot -type f | while IFS= read -r src; do
+            # Chemin relatif
+            rel="${src#/tmp/repo-snapshot/}"
 
-          # Tous les autres fichiers : même chemin
-          CONFIGS=(
-            "server.properties"
-            "ops.json"
-            "eula.txt"
-            "config/paper-global.yml"
-            "config/paper-world-defaults.yml"
-            "plugins/FastAsyncWorldEdit/config.yml"
-            "plugins/FastAsyncWorldEdit/worldedit-config.yml"
-            "plugins/FastAsyncVoxelSniper/config.yml"
-            "plugins/ezEdits/config.yml"
-            "plugins/AxiomPaper/config.yml"
-            "plugins/Arceon/config.yml"
-            "plugins/TAB/config.yml"
-            "plugins/TAB/animations.yml"
-            "plugins/ExpertBuild/config.yml"
-            "plugins/Chunky/config.yml"
-          )
+            # Ignorer les fichiers git internes
+            [[ "$rel" == .git/* ]] && continue
+            [[ "$rel" == ".git" ]] && continue
 
-          OK=0
-          SKIP=0
-          for cfg in "${CONFIGS[@]}"; do
-            if [ -f "/tmp/repo-configs/$cfg" ]; then
-              mkdir -p "$(dirname "$cfg")"
-              cp "/tmp/repo-configs/$cfg" "$cfg"
-              echo "  ✓ $cfg"
-              OK=$((OK + 1))
-            else
-              echo "  ○ drive conservé : $cfg"
-              SKIP=$((SKIP + 1))
-            fi
+            # Ignorer les archives de backup (trop grosses, inutiles)
+            [[ "$rel" == *.tar.zst ]] && continue
+            [[ "$rel" == *.tar.gz ]]  && continue
+
+            # Créer le dossier destination si besoin
+            dst_dir="$(dirname "$rel")"
+            [ -n "$dst_dir" ] && [ "$dst_dir" != "." ] \
+              && mkdir -p "$dst_dir"
+
+            # Copier le fichier (repo écrase drive)
+            cp "$src" "$rel" 2>/dev/null && \
+              echo "  ✓ $rel" || \
+              echo "  ✗ échec : $rel"
           done
 
-          echo ""
-          echo "=== Vérification finale ==="
-          ALL_OK=true
-          for cfg in \
-            server.properties ops.json eula.txt spigot.yml \
-            config/paper-global.yml config/paper-world-defaults.yml \
-            "${CONFIGS[@]}"; do
-            if [ -f "$cfg" ]; then
-              printf "  ✓ %s\n" "$cfg"
-            else
-              printf "  ✗ ABSENT : %s\n" "$cfg"
-              ALL_OK=false
-            fi
-          done
+          # spigot.yml doit être à la racine
+          [ -f config/spigot.yml ] && cp config/spigot.yml spigot.yml \
+            && echo "  ✓ spigot.yml (racine)"
 
           echo ""
-          $ALL_OK && echo "Toutes les configs OK ✓" \
-                  || echo "Certaines configs absentes (voir ✗)"
+          echo "Restauration terminée ✓"
+          echo "Fichiers du repo appliqués : $(find /tmp/repo-snapshot \
+            -type f ! -path '*/.git/*' | wc -l)"
 
       # ════════════════════════════════════════════════════════════
       # ÉTAPE 6 — Playit tunnel
@@ -669,16 +614,8 @@ jobs:
 
           # ══════════════════════════════════════════════════════
           # FONCTION : Démarrer le serveur Minecraft
-          # Flags JVM :
-          #   - G1GC (Aikar's flags) : meilleur pour Minecraft
-          #   - ReservedCodeCache 512MB : évite les déoptimisations
-          #   - StringDeduplication : économise RAM sur les strings
-          #   - PerfDisableSharedMem : évite les IO inutiles
-          #   - ExitOnOutOfMemoryError : crash propre → watchdog relance
           # ══════════════════════════════════════════════════════
           start_mc() {
-            # tail -f maintient le pipe ouvert indéfiniment
-            # → Java reçoit les commandes de mc_cmd()
             tail -f "$MC_INPUT_PIPE" 2>/dev/null | \
             "$JAVA" \
               -Xms${JVM_XMX} \
@@ -774,9 +711,6 @@ jobs:
             fi
 
             # ── Avertissement 35s avant la relance ──────────
-            # send_restart_warning dure ~33s
-            # On déclenche à 20365s pour finir à ~20398s
-            # La relance est à 20400s → timing parfait
             if [ $ELAPSED -ge 20365 ] && [ $WARNED -eq 0 ]; then
               WARNED=1
               echo "[INFO] Avertissement relance (${ELAPSED_MIN}min)"
@@ -847,7 +781,6 @@ jobs:
             fi
 
             # ── Relance workflow avant la limite 350min ──────
-            # On relance à 340min (20400s) pour avoir 10min de marge
             if [ $ELAPSED -ge 20400 ]; then
               echo "[INFO] Relance workflow à ${ELAPSED_MIN}min..."
               backup "pre-restart"
@@ -855,7 +788,6 @@ jobs:
               kill $MONITOR_PID 2>/dev/null || true
               dispatch_workflow
               sleep 10
-              # Arrêt propre du serveur MC avant de quitter
               mc_cmd "say §6§l[§c§l ⚠ §6§l]§r §fRedémarrage du workflow..."
               mc_cmd "stop"
               sleep 8
