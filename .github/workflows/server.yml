@@ -25,36 +25,31 @@ jobs:
           token: ${{ secrets.FINE_GRAINED_PAT }}
 
       # ════════════════════════════════════════════════════════════
-      # ÉTAPE 1 — Sauvegarder le snapshot complet du repo
+      # ÉTAPE 1 — Snapshot repo
       # ════════════════════════════════════════════════════════════
-      - name: Sauvegarder configs repo
+      - name: Snapshot repo
         run: |
           set -euo pipefail
-
-          # Sauvegarder L'INTÉGRALITÉ du repo dans /tmp
-          # Ainsi TOUT fichier versionné dans git aura priorité
-          # sur le drive, peu importe lequel
-          echo "Sauvegarde complète du repo..."
           mkdir -p /tmp/repo-snapshot
           cp -r . /tmp/repo-snapshot/
-          echo "Snapshot repo : $(find /tmp/repo-snapshot -type f | wc -l) fichiers ✓"
+          echo "Snapshot: $(find /tmp/repo-snapshot -type f | wc -l) fichiers ✓"
 
       # ════════════════════════════════════════════════════════════
-      # ÉTAPE 2 — Setup système : rclone + kernel + swap + java
+      # ÉTAPE 2 — Setup système
       # ════════════════════════════════════════════════════════════
       - name: Setup système
         run: |
           set -euo pipefail
 
-          # ── Désactiver les processus parasites ───────────────
-          sudo ln -sf /bin/true /usr/bin/mandb
+          # Désactiver processus parasites
+          sudo ln -sf /bin/true /usr/bin/mandb 2>/dev/null || true
           sudo systemctl stop unattended-upgrades apt-daily \
             apt-daily-upgrade 2>/dev/null || true
           sudo systemctl disable unattended-upgrades apt-daily \
             apt-daily-upgrade 2>/dev/null || true
           sudo pkill -f unattended-upgrades 2>/dev/null || true
 
-          # ── Rclone ───────────────────────────────────────────
+          # Rclone
           curl -fsSL "https://downloads.rclone.org/rclone-current-linux-amd64.zip" \
             -o /tmp/rclone.zip
           unzip -jo /tmp/rclone.zip "*/rclone" -d /tmp/
@@ -66,7 +61,7 @@ jobs:
           echo "${{ secrets.RCLONE_CONF_B64 }}" | base64 -d \
             > ~/.config/rclone/rclone.conf
 
-          # ── Kernel : réseau ──────────────────────────────────
+          # Kernel réseau
           sudo sysctl -w \
             net.core.rmem_max=134217728 \
             net.core.wmem_max=134217728 \
@@ -81,7 +76,7 @@ jobs:
             net.ipv4.tcp_tw_reuse=1 \
             2>/dev/null || true
 
-          # ── Kernel : mémoire ─────────────────────────────────
+          # Kernel mémoire
           sudo sysctl -w \
             vm.swappiness=1 \
             vm.dirty_ratio=60 \
@@ -91,26 +86,25 @@ jobs:
             vm.max_map_count=262144 \
             2>/dev/null || true
 
-          # ── Kernel : scheduler CPU ───────────────────────────
+          # Scheduler CPU
           sudo sysctl -w \
             kernel.sched_migration_cost_ns=5000000 \
             kernel.sched_autogroup_enabled=0 \
             2>/dev/null || true
 
-          # ── Transparent Huge Pages (THP) ─────────────────────
-          echo madvise | sudo tee /sys/kernel/mm/transparent_hugepage/enabled \
-            > /dev/null 2>&1 || true
+          # THP
+          echo madvise | sudo tee \
+            /sys/kernel/mm/transparent_hugepage/enabled >/dev/null 2>&1 || true
           echo defer+madvise | sudo tee \
-            /sys/kernel/mm/transparent_hugepage/defrag \
-            > /dev/null 2>&1 || true
+            /sys/kernel/mm/transparent_hugepage/defrag >/dev/null 2>&1 || true
 
-          # ── CPU Governor : performance ────────────────────────
+          # CPU Governor
           for cpu in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
-            [ -f "$cpu" ] && echo performance | sudo tee "$cpu" \
-              > /dev/null 2>&1 || true
+            [ -f "$cpu" ] && echo performance \
+              | sudo tee "$cpu" >/dev/null 2>&1 || true
           done
 
-          # ── Swap (filet de sécurité OOM) ─────────────────────
+          # Swap 4G
           if ! swapon --show | grep -q /swapfile; then
             if [ ! -f /swapfile ]; then
               sudo fallocate -l 4G /swapfile 2>/dev/null \
@@ -121,17 +115,15 @@ jobs:
             sudo mkswap /swapfile 2>/dev/null || true
             sudo swapon /swapfile 2>/dev/null || true
             echo "Swap 4G activé ✓"
-          else
-            echo "Swap déjà actif ✓"
           fi
 
-          # ── Vérifier Java 21 ─────────────────────────────────
+          # Java 21
           JAVA_BIN="/usr/lib/jvm/temurin-21-jdk-amd64/bin/java"
           if [ ! -f "$JAVA_BIN" ]; then
             echo "Installation Temurin 21..."
             wget -qO - https://packages.adoptium.net/artifactory/api/gpg/key/public \
               | sudo gpg --dearmor \
-              | sudo tee /etc/apt/trusted.gpg.d/adoptium.gpg > /dev/null
+              | sudo tee /etc/apt/trusted.gpg.d/adoptium.gpg >/dev/null
             echo "deb https://packages.adoptium.net/artifactory/deb \
               $(. /etc/os-release && echo $VERSION_CODENAME) main" \
               | sudo tee /etc/apt/sources.list.d/adoptium.list
@@ -139,15 +131,13 @@ jobs:
             sudo apt-get install -y -qq temurin-21-jdk
           fi
 
-          # ── Résumé ───────────────────────────────────────────
+          RAM_MB=$(grep MemTotal /proc/meminfo | awk '{print int($2/1024)}')
           echo ""
           echo "══════════════════════════════════════"
-          echo "  RAM  : $(grep MemTotal /proc/meminfo \
-            | awk '{print int($2/1024)}')MB"
+          echo "  RAM  : ${RAM_MB}MB"
           echo "  CPUs : $(nproc)"
           echo "  Java : $($JAVA_BIN -version 2>&1 | head -1)"
           echo "  Swap : $(free -h | awk '/Swap/{print $2}')"
-          echo "  THP  : $(cat /sys/kernel/mm/transparent_hugepage/enabled)"
           echo "══════════════════════════════════════"
 
       # ════════════════════════════════════════════════════════════
@@ -156,10 +146,8 @@ jobs:
       - name: Restore drive
         run: |
           set -uo pipefail
-
           echo "Téléchargement depuis le drive..."
 
-          # Télécharger en parallèle
           rclone copy rclone-mc:mc-backup/world.tar.zst . \
             --transfers=8 --multi-thread-streams=8 \
             --buffer-size=256M --ignore-errors &
@@ -174,32 +162,40 @@ jobs:
             --multi-thread-streams=4 --ignore-errors &
           PID_J=$!
 
-          wait $PID_W $PID_P $PID_J
+          # Télécharger aussi les configs plugins sauvegardées
+          rclone copy rclone-mc:mc-backup/plugins-config.tar.zst . \
+            --transfers=4 --ignore-errors &
+          PID_C=$!
+
+          wait $PID_W $PID_P $PID_J $PID_C
           echo "Téléchargement terminé ✓"
 
-          # Extraire en parallèle
+          # Extraire
           if [ -f world.tar.zst ]; then
             zstd -d -T0 --stdout world.tar.zst | tar -x &
             PID_EW=$!
-            echo "World : extraction en cours..."
           else
             PID_EW=""
-            echo "World : aucune sauvegarde → démarrage vierge"
+            echo "World : démarrage vierge"
           fi
 
           if [ -f plugins.tar.zst ]; then
             zstd -d -T0 --stdout plugins.tar.zst | tar -x &
             PID_EP=$!
-            echo "Plugins : extraction en cours..."
           else
             PID_EP=""
-            echo "Plugins : aucune sauvegarde"
           fi
 
-          [ -n "$PID_EW" ] && wait $PID_EW && echo "World extrait ✓"
-          [ -n "$PID_EP" ] && wait $PID_EP && echo "Plugins extraits ✓"
+          if [ -f plugins-config.tar.zst ]; then
+            zstd -d -T0 --stdout plugins-config.tar.zst | tar -x &
+            PID_EC=$!
+          else
+            PID_EC=""
+          fi
 
-          echo "Restore terminé ✓"
+          [ -n "$PID_EW" ] && wait "$PID_EW" && echo "World extrait ✓"
+          [ -n "$PID_EP" ] && wait "$PID_EP" && echo "Plugins JARs extraits ✓"
+          [ -n "$PID_EC" ] && wait "$PID_EC" && echo "Configs plugins extraites ✓"
 
       # ════════════════════════════════════════════════════════════
       # ÉTAPE 4 — Paper
@@ -207,66 +203,42 @@ jobs:
       - name: Paper
         run: |
           set -uo pipefail
-
           if [ -f server.jar ]; then
-            echo "server.jar depuis le cache drive ✓"
+            echo "server.jar depuis cache ✓"
           else
             echo "Téléchargement Paper 1.21.10..."
             wget -q -O server.jar \
               "https://api.papermc.io/v2/projects/paper/versions/1.21.10/builds/129/downloads/paper-1.21.10-129.jar"
             echo "Paper téléchargé ✓"
-            # Sauvegarder le jar en arrière-plan
             rclone copy server.jar rclone-mc:mc-backup/ \
               --ignore-errors &
             disown
           fi
 
       # ════════════════════════════════════════════════════════════
-      # ÉTAPE 5 — Appliquer les configs du repo PAR-DESSUS le drive
+      # ÉTAPE 5 — Appliquer configs repo PAR-DESSUS le drive
       # ════════════════════════════════════════════════════════════
       - name: Appliquer configs
         run: |
           set -uo pipefail
-          echo "=== Restauration snapshot repo PAR-DESSUS le drive ==="
-
-          # Restaurer TOUS les fichiers du repo par-dessus le drive
-          # Le drive peut avoir des fichiers supplémentaires (world/, data joueurs...)
-          # mais tout ce qui était dans le repo au démarrage est restauré
+          echo "=== Restauration snapshot repo ==="
 
           find /tmp/repo-snapshot -type f | while IFS= read -r src; do
-            # Chemin relatif
             rel="${src#/tmp/repo-snapshot/}"
+            [[ "$rel" == .git/* ]]     && continue
+            [[ "$rel" == ".git" ]]     && continue
+            [[ "$rel" == *.tar.zst ]]  && continue
+            [[ "$rel" == *.tar.gz ]]   && continue
 
-            # Ignorer les fichiers git internes
-            [[ "$rel" == .git/* ]] && continue
-            [[ "$rel" == ".git" ]] && continue
-
-            # Ignorer les archives de backup (trop grosses, inutiles)
-            [[ "$rel" == *.tar.zst ]] && continue
-            [[ "$rel" == *.tar.gz ]]  && continue
-
-            # Créer le dossier destination si besoin
             dst_dir="$(dirname "$rel")"
-            [ -n "$dst_dir" ] && [ "$dst_dir" != "." ] \
-              && mkdir -p "$dst_dir"
-
-            # Copier le fichier (repo écrase drive)
-            cp "$src" "$rel" 2>/dev/null && \
-              echo "  ✓ $rel" || \
-              echo "  ✗ échec : $rel"
+            [ -n "$dst_dir" ] && [ "$dst_dir" != "." ] && mkdir -p "$dst_dir"
+            cp "$src" "$rel" 2>/dev/null && true
           done
 
-          # spigot.yml doit être à la racine
-          [ -f config/spigot.yml ] && cp config/spigot.yml spigot.yml \
-            && echo "  ✓ spigot.yml (racine)"
-
-          echo ""
-          echo "Restauration terminée ✓"
-          echo "Fichiers du repo appliqués : $(find /tmp/repo-snapshot \
-            -type f ! -path '*/.git/*' | wc -l)"
+          echo "Configs appliquées ✓"
 
       # ════════════════════════════════════════════════════════════
-      # ÉTAPE 6 — Playit tunnel
+      # ÉTAPE 6 — Playit
       # ════════════════════════════════════════════════════════════
       - name: Playit
         run: |
@@ -285,13 +257,12 @@ jobs:
               echo "Playit connecté en ${i}s ✓"
               break
             fi
-            if ! kill -0 $PLAYIT_PID 2>/dev/null; then
+            if ! kill -0 "$PLAYIT_PID" 2>/dev/null; then
               echo "[WARN] Playit mort prématurément"
               cat playit.log
               break
             fi
           done
-
           cat playit.log
 
       # ════════════════════════════════════════════════════════════
@@ -304,25 +275,23 @@ jobs:
           RUN_ID:           ${{ github.run_id }}
         run: |
           # ══════════════════════════════════════════════════════
-          # VARIABLES GLOBALES
+          # CONFIG
           # ══════════════════════════════════════════════════════
-          REPO_DIR="/home/runner/work/java-project/java-project"
-          MONITOR_FILE="/tmp/mc_stats.txt"
-          MONITOR_LOG="/tmp/mc_monitor.log"
-          MC_INPUT_PIPE="/tmp/mc_input"
           JAVA="/usr/lib/jvm/temurin-21-jdk-amd64/bin/java"
+          MONITOR_FILE="/tmp/mc_stats.txt"
+          MC_LOG="mc.log"
+          MC_INPUT_PIPE="/tmp/mc_input"
 
-          # Pipe STDIN → commandes serveur
           rm -f "$MC_INPUT_PIPE"
           mkfifo "$MC_INPUT_PIPE"
+          > "$MC_LOG"
 
-          # ── RAM dynamique ─────────────────────────────────────
+          # RAM dynamique
           RAM_TOTAL_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
           RAM_TOTAL_MB=$((RAM_TOTAL_KB / 1024))
-          # Réserver 2.2GB pour l'OS, le reste à la JVM
           JVM_MB=$((RAM_TOTAL_MB - 2200))
-          [ $JVM_MB -gt 13312 ] && JVM_MB=13312
-          [ $JVM_MB -lt 8192  ] && JVM_MB=8192
+          [ "$JVM_MB" -gt 13312 ] && JVM_MB=13312
+          [ "$JVM_MB" -lt 8192  ] && JVM_MB=8192
           JVM_XMX="${JVM_MB}M"
           CPU_COUNT=$(nproc)
 
@@ -333,16 +302,12 @@ jobs:
           echo "════════════════════════════════════════════"
 
           # ══════════════════════════════════════════════════════
-          # FONCTION : Envoyer une commande au serveur MC
+          # FONCTIONS UTILITAIRES
           # ══════════════════════════════════════════════════════
           mc_cmd() {
-            # Écriture non-bloquante dans le pipe
-            echo "$1" > "$MC_INPUT_PIPE" 2>/dev/null || true
+            printf '%s\n' "$1" > "$MC_INPUT_PIPE" 2>/dev/null || true
           }
 
-          # ══════════════════════════════════════════════════════
-          # FONCTION : API GitHub — Annuler le workflow
-          # ══════════════════════════════════════════════════════
           cancel_workflow() {
             echo "[GITHUB] Annulation workflow ${RUN_ID}..."
             curl -s -X POST \
@@ -350,12 +315,9 @@ jobs:
               -H "Accept: application/vnd.github.v3+json" \
               "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/cancel" \
               && echo "[GITHUB] Annulé ✓" \
-              || echo "[GITHUB] Annulation échouée (ignoré)"
+              || echo "[GITHUB] Annulation échouée"
           }
 
-          # ══════════════════════════════════════════════════════
-          # FONCTION : API GitHub — Relancer un workflow
-          # ══════════════════════════════════════════════════════
           dispatch_workflow() {
             echo "[GITHUB] Dispatch nouveau workflow..."
             curl -s -X POST \
@@ -363,79 +325,75 @@ jobs:
               -H "Accept: application/vnd.github.v3+json" \
               "https://api.github.com/repos/${REPO}/actions/workflows/server.yml/dispatches" \
               -d '{"ref":"main"}' \
-              && echo "[GITHUB] Nouveau workflow lancé ✓" \
-              || echo "[GITHUB] Dispatch échoué (ignoré)"
+              && echo "[GITHUB] Nouveau workflow ✓" \
+              || echo "[GITHUB] Dispatch échoué"
           }
 
           # ══════════════════════════════════════════════════════
-          # FONCTION : Monitoring (arrière-plan)
+          # MONITORING (arrière-plan)
           # ══════════════════════════════════════════════════════
           monitor_loop() {
+            # Attendre que le fichier log existe
+            while [ ! -f "$MC_LOG" ]; do sleep 1; done
+
             while true; do
-              local TS MEM_FREE MEM_USED_MB MEM_PCT SWAP_MB DISK
-              local CPU_LINE1 CPU_LINE2 IDLE1 IDLE2 TOTAL1 TOTAL2
-              local CPU_PCT TPS PLAYERS
+              # CPU sur 1 seconde (valeurs entières uniquement)
+              CPU_LINE1=$(grep '^cpu ' /proc/stat 2>/dev/null || echo "cpu 0 0 0 0 0 0 0")
+              sleep 1
+              CPU_LINE2=$(grep '^cpu ' /proc/stat 2>/dev/null || echo "cpu 0 0 0 0 0 0 0")
+
+              IDLE1=$(echo "$CPU_LINE1" | awk '{print $5+0}')
+              TOTAL1=$(echo "$CPU_LINE1" | awk '{s=0; for(i=2;i<=NF;i++) s+=$i; print s+0}')
+              IDLE2=$(echo "$CPU_LINE2" | awk '{print $5+0}')
+              TOTAL2=$(echo "$CPU_LINE2" | awk '{s=0; for(i=2;i<=NF;i++) s+=$i; print s+0}')
+
+              DELTA_TOTAL=$(( TOTAL2 - TOTAL1 ))
+              DELTA_IDLE=$(( IDLE2 - IDLE1 ))
+              if [ "$DELTA_TOTAL" -gt 0 ]; then
+                CPU_PCT=$(( 100 - (DELTA_IDLE * 100 / DELTA_TOTAL) ))
+              else
+                CPU_PCT=0
+              fi
+
+              # RAM
+              MEM_FREE=$(grep MemAvailable /proc/meminfo | awk '{print $2+0}')
+              MEM_USED_MB=$(( (RAM_TOTAL_KB - MEM_FREE) / 1024 ))
+              MEM_PCT=$(( (RAM_TOTAL_KB - MEM_FREE) * 100 / RAM_TOTAL_KB ))
+              SWAP_USED=$(free -m 2>/dev/null | awk '/Swap/{print $3+0}')
+              DISK=$(df -h . 2>/dev/null | tail -1 | awk '{print $5}')
+
+              # TPS
+              TPS=$(grep -oP '(?<=TPS from last 1m, 5m, 15m: )[\d.]+' \
+                "$MC_LOG" 2>/dev/null | tail -1)
+              [ -z "$TPS" ] && TPS="N/A"
+
+              # Joueurs (depuis le log)
+              ONLINE=$(grep -c "logged in with entity id" \
+                "$MC_LOG" 2>/dev/null || echo "0")
+              DISC=$(grep -c "lost connection" \
+                "$MC_LOG" 2>/dev/null || echo "0")
+              PLAYERS=$(( ONLINE - DISC ))
+              [ "$PLAYERS" -lt 0 ] && PLAYERS=0
 
               TS=$(date '+%H:%M:%S')
 
-              # RAM
-              MEM_FREE=$(grep MemAvailable /proc/meminfo | awk '{print $2}')
-              MEM_USED_MB=$(( (RAM_TOTAL_KB - MEM_FREE) / 1024 ))
-              MEM_PCT=$(( (RAM_TOTAL_KB - MEM_FREE) * 100 / RAM_TOTAL_KB ))
-              SWAP_MB=$(free -m 2>/dev/null | awk '/Swap/{print $3}')
-              DISK=$(df -h . 2>/dev/null | tail -1 | awk '{print $5}')
-
-              # CPU (mesure sur 1 seconde)
-              CPU_LINE1=$(grep '^cpu ' /proc/stat)
-              sleep 1
-              CPU_LINE2=$(grep '^cpu ' /proc/stat)
-              IDLE1=$(echo "$CPU_LINE1" | awk '{print $5}')
-              TOTAL1=$(echo "$CPU_LINE1" \
-                | awk '{s=0;for(i=2;i<=NF;i++)s+=$i;print s}')
-              IDLE2=$(echo "$CPU_LINE2" | awk '{print $5}')
-              TOTAL2=$(echo "$CPU_LINE2" \
-                | awk '{s=0;for(i=2;i<=NF;i++)s+=$i;print s}')
-              CPU_PCT=0
-              [ $((TOTAL2 - TOTAL1)) -gt 0 ] && \
-                CPU_PCT=$(( 100-(IDLE2-IDLE1)*100/(TOTAL2-TOTAL1) ))
-
-              # TPS depuis le log Paper
-              TPS=$(grep -oP \
-                '(?<=TPS from last 1m, 5m, 15m: )[\d.]+' \
-                mc.log 2>/dev/null | tail -1)
-              [ -z "$TPS" ] && TPS="N/A"
-
-              # Joueurs connectés
-              PLAYERS=$(grep -c "logged in with entity id" \
-                mc.log 2>/dev/null || echo "0")
-              DISCONNECTS=$(grep -c "lost connection" \
-                mc.log 2>/dev/null || echo "0")
-              ONLINE=$(( PLAYERS - DISCONNECTS ))
-              [ $ONLINE -lt 0 ] && ONLINE=0
-
-              # Écrire les stats
-              printf "TS=%s;CPU=%s%%;RAM=%s/%sMB(%s%%);SWAP=%sMB;DISK=%s;TPS=%s;ONLINE=%s\n" \
+              printf 'TS=%s;CPU=%s%%;RAM=%s/%sMB(%s%%);SWAP=%sMB;DISK=%s;TPS=%s;ONLINE=%s\n' \
                 "$TS" "$CPU_PCT" "$MEM_USED_MB" "$RAM_TOTAL_MB" \
-                "$MEM_PCT" "$SWAP_MB" "$DISK" "$TPS" "$ONLINE" \
+                "$MEM_PCT" "$SWAP_USED" "$DISK" "$TPS" "$PLAYERS" \
                 > "$MONITOR_FILE"
-
-              printf "[%s] CPU:%s%% RAM:%s/%sMB(%s%%) SWAP:%sMB DISK:%s TPS:%s ONLINE:%s\n" \
-                "$TS" "$CPU_PCT" "$MEM_USED_MB" "$RAM_TOTAL_MB" \
-                "$MEM_PCT" "$SWAP_MB" "$DISK" "$TPS" "$ONLINE" \
-                >> "$MONITOR_LOG"
 
               sleep 9
             done
           }
 
           # ══════════════════════════════════════════════════════
-          # FONCTION : Afficher les stats dans les logs Actions
+          # AFFICHAGE STATS + LOGS EN DIRECT
           # ══════════════════════════════════════════════════════
           display_stats() {
             local DATA TS CPU RAM SWP DSK TPS ONL
-            echo "╔══════════════════════════════════════════════╗"
-            echo "║         STATS SERVEUR MINECRAFT              ║"
-            echo "╠══════════════════════════════════════════════╣"
+            echo "╔══════════════════════════════════════════════════╗"
+            echo "║          STATS SERVEUR MINECRAFT                 ║"
+            echo "╠══════════════════════════════════════════════════╣"
             if [ -f "$MONITOR_FILE" ]; then
               DATA=$(cat "$MONITOR_FILE")
               TS=$(echo "$DATA"  | grep -oP 'TS=\K[^;]+')
@@ -445,36 +403,42 @@ jobs:
               DSK=$(echo "$DATA" | grep -oP 'DISK=\K[^;]+')
               TPS=$(echo "$DATA" | grep -oP 'TPS=\K[^;]+')
               ONL=$(echo "$DATA" | grep -oP 'ONLINE=\K[^;]+')
-              echo "║  Heure    : $TS"
-              echo "║  CPU      : $CPU"
-              echo "║  RAM      : $RAM"
-              echo "║  Swap     : $SWP"
-              echo "║  Disque   : $DSK"
-              echo "║  TPS      : $TPS"
-              echo "║  En ligne : $ONL joueur(s)"
-              echo "║  JVM      : $JVM_XMX alloues"
+              printf "║  %-10s %s\n" "Heure :" "$TS"
+              printf "║  %-10s %s\n" "CPU :"   "$CPU"
+              printf "║  %-10s %s\n" "RAM :"   "$RAM"
+              printf "║  %-10s %s\n" "Swap :"  "$SWP"
+              printf "║  %-10s %s\n" "Disque:" "$DSK"
+              printf "║  %-10s %s\n" "TPS :"   "$TPS"
+              printf "║  %-10s %s joueur(s)\n" "Online:" "$ONL"
+              printf "║  %-10s %s\n" "JVM :"   "$JVM_XMX"
             else
               echo "║  Monitoring en cours de démarrage..."
             fi
-            echo "╠══════════════════════════════════════════════╣"
-            echo "║  LOGS MC (10 dernières lignes)               ║"
-            echo "╠══════════════════════════════════════════════╣"
-            tail -10 mc.log 2>/dev/null | while IFS= read -r line; do
-              printf "║  %.80s\n" "$line"
-            done
-            echo "╚══════════════════════════════════════════════╝"
+            echo "╠══════════════════════════════════════════════════╣"
+            echo "║  LOGS MC (20 dernières lignes)                   ║"
+            echo "╠══════════════════════════════════════════════════╣"
+            if [ -f "$MC_LOG" ]; then
+              tail -20 "$MC_LOG" | while IFS= read -r line; do
+                printf "║  %.96s\n" "$line"
+              done
+            fi
+            echo "╚══════════════════════════════════════════════════╝"
           }
 
           # ══════════════════════════════════════════════════════
-          # FONCTION : Backup world + plugins vers le drive
+          # BACKUP
           # ══════════════════════════════════════════════════════
           backup() {
             local LABEL="${1:-periodic}"
             local T0
             T0=$(date +%s)
-            local UP_W="" UP_P=""
-
             echo "[BACKUP:${LABEL}] Démarrage..."
+
+            # Sauvegarder le serveur via commande MC
+            mc_cmd "save-all flush" 2>/dev/null || true
+            sleep 3
+
+            local PIDS=()
 
             # World
             if [ -d world ]; then
@@ -483,15 +447,15 @@ jobs:
                 --exclude='world/poi' \
                 --exclude='world/DIM-1/poi' \
                 --exclude='world/DIM1/poi' \
-                world/ 2>/dev/null \
+                world/ world_nether/ world_the_end/ 2>/dev/null \
               | zstd -1 -T0 -fo world.tar.zst
               rclone copy world.tar.zst rclone-mc:mc-backup/ \
                 --transfers=8 --multi-thread-streams=8 \
                 --buffer-size=256M --ignore-errors &
-              UP_W=$!
+              PIDS+=($!)
             fi
 
-            # Plugins JARs (seulement si modifiés)
+            # Plugins JARs
             if [ -d plugins ]; then
               local CHANGED=0
               if [ -f plugins.tar.zst ]; then
@@ -505,41 +469,55 @@ jobs:
                   | tar -cf - --null -T - 2>/dev/null \
                   | zstd -3 -T0 -fo plugins.tar.zst
                 rclone copy plugins.tar.zst rclone-mc:mc-backup/ \
-                  --transfers=4 --multi-thread-streams=4 \
-                  --buffer-size=128M --ignore-errors &
-                UP_P=$!
+                  --transfers=4 --ignore-errors &
+                PIDS+=($!)
               else
-                echo "[BACKUP] Plugins inchangés → skippé"
+                echo "[BACKUP] Plugins JARs inchangés → skippé"
               fi
             fi
 
-            wait ${UP_W:-} ${UP_P:-} 2>/dev/null
+            # Configs plugins (YAML, JSON, properties, etc.)
+            if [ -d plugins ]; then
+              find plugins -mindepth 2 -type f \
+                \( -name "*.yml" -o -name "*.yaml" \
+                -o -name "*.json" -o -name "*.conf" \
+                -o -name "*.properties" -o -name "*.toml" \) \
+                ! -name "plugin.yml" ! -name "plugin.yaml" \
+                2>/dev/null | tar -cf - -T - 2>/dev/null \
+              | zstd -3 -T0 -fo plugins-config.tar.zst 2>/dev/null || true
+              if [ -f plugins-config.tar.zst ]; then
+                rclone copy plugins-config.tar.zst rclone-mc:mc-backup/ \
+                  --transfers=4 --ignore-errors &
+                PIDS+=($!)
+              fi
+            fi
+
+            wait "${PIDS[@]}" 2>/dev/null
             echo "[BACKUP:${LABEL}] Terminé en $(( $(date +%s) - T0 ))s ✓"
           }
 
           # ══════════════════════════════════════════════════════
-          # FONCTION : Commit les configs vers GitHub
+          # COMMIT CONFIGS GIT
           # ══════════════════════════════════════════════════════
           commit_configs() {
+            local REPO_DIR
+            REPO_DIR="$(pwd)"
             echo "[GIT] Sync configs vers GitHub..."
-            cd "$REPO_DIR"
 
             git config user.name  "MC Server Bot"
             git config user.email "bot@mc-server.local"
 
-            # Ajouter configs plugins (exclure plugin.yml internes)
             find plugins -mindepth 2 -type f \
               \( -name "*.yml" -o -name "*.yaml" \
               -o -name "*.json" -o -name "*.conf" \
-              -o -name "*.properties" -o -name "*.toml" \) \
+              -o -name "*.properties" \) \
               ! -name "plugin.yml" ! -name "plugin.yaml" \
               2>/dev/null | while IFS= read -r f; do
                 git add "$f" 2>/dev/null || true
               done
 
-            # Configs globales
-            git add config/ server.properties ops.json eula.txt \
-              2>/dev/null || true
+            git add config/ server.properties ops.json \
+              eula.txt 2>/dev/null || true
 
             if ! git diff --cached --quiet 2>/dev/null; then
               git commit \
@@ -553,41 +531,35 @@ jobs:
             else
               echo "[GIT] Rien à committer"
             fi
-
-            cd - >/dev/null
           }
 
           # ══════════════════════════════════════════════════════
-          # FONCTION : Détection arrêt propre (/stop)
+          # DÉTECTION ARRÊT PROPRE
           # ══════════════════════════════════════════════════════
           was_graceful_stop() {
-            tail -40 mc.log 2>/dev/null | grep -qiE \
-              "Saving players|Saving worlds|All dimensions are saved|Stopping server"
+            tail -40 "$MC_LOG" 2>/dev/null | grep -qiE \
+              "Saving players|All dimensions are saved|Stopping server"
           }
 
           # ══════════════════════════════════════════════════════
-          # FONCTION : Countdown avant relance workflow
+          # COUNTDOWN RESTART
           # ══════════════════════════════════════════════════════
           send_restart_warning() {
-            echo "[RESTART] Envoi avertissements joueurs..."
+            echo "[RESTART] Envoi avertissements..."
 
-            # ── 30 secondes ──────────────────────────────────
-            mc_cmd "say §6§l[§c§l ⚠ §6§l]§r §fRedémarrage automatique dans §e§l30 §r§fsecondes !"
+            mc_cmd "say §6§l[§c§l ⚠ §6§l]§r §fRedémarrage dans §e§l30 §r§fsecondes !"
             mc_cmd "title @a times 10 60 20"
             mc_cmd "title @a title {\"text\":\"⚠ RESTART\",\"color\":\"red\",\"bold\":true}"
             mc_cmd "title @a subtitle {\"text\":\"dans 30 secondes\",\"color\":\"yellow\"}"
             mc_cmd "playsound minecraft:block.note_block.pling master @a ~ ~ ~ 1 0.5"
             sleep 20
 
-            # ── 10 secondes ──────────────────────────────────
             mc_cmd "say §6§l[§c§l ⚠ §6§l]§r §fRedémarrage dans §c§l10 §r§fsecondes !"
             mc_cmd "title @a times 5 20 5"
             mc_cmd "title @a title {\"text\":\"10\",\"color\":\"red\",\"bold\":true}"
-            mc_cmd "title @a subtitle {\"text\":\"secondes...\",\"color\":\"gold\"}"
             mc_cmd "playsound minecraft:block.note_block.pling master @a ~ ~ ~ 1 0.8"
             sleep 1
 
-            # ── Countdown 9→1 ────────────────────────────────
             for COUNT in 9 8 7 6 5 4 3 2 1; do
               if   [ "$COUNT" -ge 7 ]; then COLOR="gold"
               elif [ "$COUNT" -ge 4 ]; then COLOR="yellow"
@@ -596,31 +568,25 @@ jobs:
               mc_cmd "title @a times 2 18 2"
               mc_cmd "title @a title {\"text\":\"${COUNT}\",\"color\":\"${COLOR}\",\"bold\":true}"
               mc_cmd "playsound minecraft:ui.button.click master @a ~ ~ ~ 1 1.2"
-              [ "$COUNT" -le 5 ] && \
-                mc_cmd "say §c${COUNT}..."
+              [ "$COUNT" -le 5 ] && mc_cmd "say §c${COUNT}..."
               sleep 1
             done
 
-            # ── Fin ──────────────────────────────────────────
-            mc_cmd "say §4§l✦ §r§cRedémarrage en cours... §7À tout de suite !"
-            mc_cmd "title @a times 10 50 30"
+            mc_cmd "say §4§l✦ §r§cRedémarrage en cours !"
             mc_cmd "title @a title {\"text\":\"Restart !\",\"color\":\"dark_red\",\"bold\":true}"
-            mc_cmd "title @a subtitle {\"text\":\"A tout de suite...\",\"color\":\"gray\"}"
             mc_cmd "playsound minecraft:entity.ender_dragon.growl master @a ~ ~ ~ 0.4 1.2"
             sleep 3
-
             echo "[RESTART] Avertissements envoyés ✓"
           }
 
           # ══════════════════════════════════════════════════════
-          # FONCTION : Démarrer le serveur Minecraft
+          # DÉMARRER MC
           # ══════════════════════════════════════════════════════
           start_mc() {
             tail -f "$MC_INPUT_PIPE" 2>/dev/null | \
             "$JAVA" \
               -Xms${JVM_XMX} \
               -Xmx${JVM_XMX} \
-              \
               -XX:+UseG1GC \
               -XX:+ParallelRefProcEnabled \
               -XX:MaxGCPauseMillis=200 \
@@ -641,33 +607,36 @@ jobs:
               -XX:+PerfDisableSharedMem \
               -XX:ConcGCThreads=2 \
               -XX:ParallelGCThreads=4 \
-              \
               -XX:+UseStringDeduplication \
               -XX:ReservedCodeCacheSize=512m \
               -XX:+OptimizeStringConcat \
-              \
               -XX:+HeapDumpOnOutOfMemoryError \
               -XX:HeapDumpPath=/tmp/mc-oom.hprof \
               -XX:+ExitOnOutOfMemoryError \
-              \
               -Dpaper.watchdog.earlyWarningDelay=120000 \
               -Dpaper.watchdog.earlyWarningEvery=20000 \
               -Dpaper.maxChunkThreads=4 \
-              -Dpaper.log-level=INFO \
-              \
               -Djava.net.preferIPv4Stack=true \
               -Dfile.encoding=UTF-8 \
-              -Dusing.aikars.flags=https://mcflags.emc.gs \
-              -Daikars.new.flags=true \
-              \
               -jar server.jar nogui \
-              >> mc.log 2>&1 &
-
+              >> "$MC_LOG" 2>&1 &
             echo $!
           }
 
           # ══════════════════════════════════════════════════════
-          # BOUCLE PRINCIPALE
+          # AFFICHAGE LOGS EN DIRECT (arrière-plan)
+          # ══════════════════════════════════════════════════════
+          live_log_loop() {
+            # Attendre que le log existe
+            while [ ! -f "$MC_LOG" ]; do sleep 1; done
+            echo "[LIVE] Logs MC en direct :"
+            tail -f "$MC_LOG" 2>/dev/null | while IFS= read -r line; do
+              printf "[MC] %s\n" "$line"
+            done
+          }
+
+          # ══════════════════════════════════════════════════════
+          # DÉMARRAGE
           # ══════════════════════════════════════════════════════
           MC_PID=$(start_mc)
           START_TIME=$(date +%s)
@@ -679,11 +648,21 @@ jobs:
 
           echo "MC démarré PID=${MC_PID} RAM=${JVM_XMX} CPUs=${CPU_COUNT} ✓"
 
+          # Monitoring en arrière-plan
           monitor_loop &
           MONITOR_PID=$!
+
+          # Logs en direct en arrière-plan
+          live_log_loop &
+          LIVE_PID=$!
+
           echo "Monitoring PID=${MONITOR_PID} ✓"
+          echo "Live logs PID=${LIVE_PID} ✓"
           echo ""
 
+          # ══════════════════════════════════════════════════════
+          # BOUCLE PRINCIPALE
+          # ══════════════════════════════════════════════════════
           while true; do
             sleep 20
             LOOP=$((LOOP + 1))
@@ -693,130 +672,117 @@ jobs:
             SINCE_CONFIG=$((NOW - LAST_CONFIG_COMMIT))
             ELAPSED_MIN=$((ELAPSED / 60))
 
-            # ── Stats toutes les 2 minutes ──────────────────
+            # Stats toutes les 2 minutes
             if [ $((LOOP % 6)) -eq 0 ]; then
               display_stats
             fi
 
-            # ── Backup toutes les 5 minutes ─────────────────
-            if [ $SINCE_BACKUP -ge 300 ]; then
+            # Backup toutes les 5 minutes
+            if [ "$SINCE_BACKUP" -ge 300 ]; then
               backup "periodic"
               LAST_BACKUP=$(date +%s)
             fi
 
-            # ── Commit configs toutes les 15 minutes ────────
-            if [ $SINCE_CONFIG -ge 900 ]; then
+            # Commit configs toutes les 15 minutes
+            if [ "$SINCE_CONFIG" -ge 900 ]; then
               commit_configs
               LAST_CONFIG_COMMIT=$(date +%s)
             fi
 
-            # ── Avertissement 35s avant la relance ──────────
-            if [ $ELAPSED -ge 20365 ] && [ $WARNED -eq 0 ]; then
+            # Avertissement 35s avant relance
+            if [ "$ELAPSED" -ge 20365 ] && [ "$WARNED" -eq 0 ]; then
               WARNED=1
               echo "[INFO] Avertissement relance (${ELAPSED_MIN}min)"
               send_restart_warning &
             fi
 
-            # ── Watchdog ─────────────────────────────────────
-            if ! kill -0 $MC_PID 2>/dev/null; then
+            # Watchdog
+            if ! kill -0 "$MC_PID" 2>/dev/null; then
 
               if was_graceful_stop; then
-                # ─── /stop propre ────────────────────────────
                 echo "════════════════════════════════════════"
                 echo "/stop détecté à $(date '+%H:%M:%S')"
-                echo "Sauvegarde et arrêt du workflow..."
                 echo "════════════════════════════════════════"
                 display_stats
                 backup "graceful-stop"
                 commit_configs
-                kill $MONITOR_PID 2>/dev/null || true
+                kill "$MONITOR_PID" "$LIVE_PID" 2>/dev/null || true
                 cancel_workflow
                 sleep 5
                 exit 0
 
               else
-                # ─── Crash → redémarrage auto ────────────────
                 CRASH_COUNT=$((CRASH_COUNT + 1))
                 echo "════════════════════════════════════════"
                 echo "CRASH #${CRASH_COUNT} à $(date '+%H:%M:%S')"
                 echo "════════════════════════════════════════"
                 display_stats
                 echo "=== LOGS MC (50 dernières lignes) ==="
-                tail -50 mc.log 2>/dev/null || true
+                tail -50 "$MC_LOG" 2>/dev/null || true
                 echo "======================================"
 
-                # Identifier la cause
-                if grep -qiE "OutOfMemoryError|java.lang.OutOfMemory" \
-                  mc.log 2>/dev/null; then
-                  echo "CAUSE : OutOfMemoryError (OOM)"
-                elif grep -qiE "StackOverflowError" \
-                  mc.log 2>/dev/null; then
-                  echo "CAUSE : StackOverflowError"
-                elif grep -qiE "Multiple garbage collectors" \
-                  mc.log 2>/dev/null; then
-                  echo "CAUSE : Conflit flags JVM (GC)"
+                if grep -qiE "OutOfMemoryError" "$MC_LOG" 2>/dev/null; then
+                  echo "CAUSE : OOM"
+                elif grep -qiE "StackOverflowError" "$MC_LOG" 2>/dev/null; then
+                  echo "CAUSE : StackOverflow"
                 else
                   echo "CAUSE : Crash inattendu"
                 fi
 
-                # Abandon après 5 crashs consécutifs
-                if [ $CRASH_COUNT -ge 5 ]; then
-                  echo "[FATAL] 5 crashs consécutifs → abandon"
+                if [ "$CRASH_COUNT" -ge 5 ]; then
+                  echo "[FATAL] 5 crashs → abandon"
                   backup "crash-final"
                   commit_configs
-                  kill $MONITOR_PID 2>/dev/null || true
+                  kill "$MONITOR_PID" "$LIVE_PID" 2>/dev/null || true
                   exit 1
                 fi
 
                 echo "Redémarrage dans 10s..."
                 sleep 10
                 WARNED=0
+                > "$MC_LOG"
                 MC_PID=$(start_mc)
                 echo "Redémarré PID=${MC_PID} ✓"
               fi
 
             else
-              # Serveur vivant → reset compteur crash
               CRASH_COUNT=0
             fi
 
-            # ── Relance workflow avant la limite 350min ──────
-            if [ $ELAPSED -ge 20400 ]; then
+            # Relance workflow avant 350min
+            if [ "$ELAPSED" -ge 20400 ]; then
               echo "[INFO] Relance workflow à ${ELAPSED_MIN}min..."
               backup "pre-restart"
               commit_configs
-              kill $MONITOR_PID 2>/dev/null || true
+              kill "$MONITOR_PID" "$LIVE_PID" 2>/dev/null || true
               dispatch_workflow
               sleep 10
-              mc_cmd "say §6§l[§c§l ⚠ §6§l]§r §fRedémarrage du workflow..."
               mc_cmd "stop"
               sleep 8
-              kill $MC_PID 2>/dev/null || true
+              kill "$MC_PID" 2>/dev/null || true
               exit 0
             fi
           done
 
       # ════════════════════════════════════════════════════════════
-      # ÉTAPE 8 — Backup final (toujours exécuté même si erreur)
+      # ÉTAPE 8 — Backup final
       # ════════════════════════════════════════════════════════════
       - name: Backup final
         if: always()
         run: |
           echo "[BACKUP FINAL] Démarrage..."
-          PID_W="" PID_P=""
+          PIDS=()
 
           if [ -d world ]; then
             tar -cf - \
               --exclude='world/session.lock' \
               --exclude='world/poi' \
-              --exclude='world/DIM-1/poi' \
-              --exclude='world/DIM1/poi' \
-              world/ 2>/dev/null \
+              world/ world_nether/ world_the_end/ 2>/dev/null \
             | zstd -1 -T0 -fo world.tar.zst
             rclone copy world.tar.zst rclone-mc:mc-backup/ \
               --transfers=8 --multi-thread-streams=8 \
               --buffer-size=256M --ignore-errors &
-            PID_W=$!
+            PIDS+=($!)
           fi
 
           if [ -d plugins ]; then
@@ -824,10 +790,22 @@ jobs:
               | tar -cf - --null -T - 2>/dev/null \
               | zstd -3 -T0 -fo plugins.tar.zst
             rclone copy plugins.tar.zst rclone-mc:mc-backup/ \
-              --transfers=4 --multi-thread-streams=4 \
-              --ignore-errors &
-            PID_P=$!
+              --transfers=4 --ignore-errors &
+            PIDS+=($!)
+
+            find plugins -mindepth 2 -type f \
+              \( -name "*.yml" -o -name "*.yaml" \
+              -o -name "*.json" -o -name "*.conf" \
+              -o -name "*.properties" \) \
+              ! -name "plugin.yml" ! -name "plugin.yaml" \
+              2>/dev/null | tar -cf - -T - 2>/dev/null \
+            | zstd -3 -T0 -fo plugins-config.tar.zst 2>/dev/null || true
+            if [ -f plugins-config.tar.zst ]; then
+              rclone copy plugins-config.tar.zst rclone-mc:mc-backup/ \
+                --transfers=4 --ignore-errors &
+              PIDS+=($!)
+            fi
           fi
 
-          wait ${PID_W:-} ${PID_P:-} 2>/dev/null
+          wait "${PIDS[@]}" 2>/dev/null
           echo "[BACKUP FINAL] Terminé ✓"
