@@ -11,7 +11,7 @@ powertoolsenabled: true
 accepting-pay: true
 baltop-exempt: false
 timestamps:
-  lastteleport: 0
+  lastteleport: 1777155143637
   lastheal: 0
   mute: 0
   jail: 0
@@ -23,11 +23,11 @@ last-account-name: StaSolaire
 lastlocation:
   world: d5daa0ed-4b98-4ee2-85d1-14905c3732c4
   world-name: world
-  x: 133.12169949595022
-  y: -64.41847180563163
-  z: -56.68274953949166
-  yaw: 117.17074584960938
-  pitch: 0.9039900898933411
+  x: 1142.2488416701783
+  y: 122.52262300067635
+  z: 473.5942229362684
+  yaw: 77.88055419921875
+  pitch: 46.89643096923828
 logoutlocation:
   world: ebf32e06-abc5-4560-98b9-de82e5dd6cc9
   world-name: InterditAStaSolaire
