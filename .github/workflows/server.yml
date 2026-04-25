@@ -19,11 +19,10 @@ jobs:
 
       - name: Setup rclone
         run: |
-          curl https://rclone.org/install.sh | sudo bash
-          mkdir -p ~/.config/rclone
-          cat > ~/.config/rclone/rclone.conf << 'RCLONE_EOF'
-          ${{ secrets.RCLONE_CONF }}
-          RCLONE_EOF
+           curl https://rclone.org/install.sh | sudo bash
+           mkdir -p ~/.config/rclone
+           echo "${{ secrets.RCLONE_CONF_B64 }}" | base64 -d > ~/.config/rclone/rclone.conf
+
 
       - name: Restore world
         run: |
