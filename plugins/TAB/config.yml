@@ -3,89 +3,71 @@ header-footer:
   designs:
     default:
       header:
-        - ""
-        - "<gradient:#00B4DB:#0083B0>⬡ Build Server ⬡</gradient>"
-        - ""
+      - ''
+      - <gradient:#00B4DB:#0083B0>⬡ Build Server ⬡</gradient>
+      - ''
       footer:
-        - ""
-        - "&8┌─────────────────────────┐"
-        - "&8│  &7%date%  &8•  &b%time%  &8│"
-        - "&8│  &7Ping &8» &b%ping%ms  &8•  &7Monde &8» &b%world%  &8│"
-        - "&8└─────────────────────────┘"
-        - ""
-
+      - ''
+      - '&8┌─────────────────────────┐'
+      - '&8│  &7%date%  &8•  &b%time%  &8│'
+      - '&8│  &7Ping &8» &b%ping%ms  &8•  &7Monde &8» &b%world%  &8│'
+      - '&8└─────────────────────────┘'
+      - ''
 tablist-name-formatting:
   enabled: true
   disable-condition: ''
-
 scoreboard-teams:
   enabled: true
   enable-collision: false
   invisible-nametags: false
   sorting-types:
-    - "PLACEHOLDER_A_TO_Z:%player%"
+  - PLACEHOLDER_A_TO_Z:%player%
   case-sensitive-sorting: false
   can-see-friendly-invisibles: false
   disable-condition: ''
-
-# ── Ping affiché à droite de chaque joueur dans la tab ──
 playerlist-objective:
   enabled: true
-  value: "%ping%"
-  fancy-value: "&8[&b%ping%ms&8]"
-  title: "Ping"
+  value: '%ping%'
+  fancy-value: '&8[&b%ping%ms&8]'
+  title: Ping
   render-type: INTEGER
   disable-condition: ''
-
 belowname-objective:
   enabled: false
-
+  fancy-value-default: NPC
+  fancy-value: '&c%health%'
 prevent-spectator-effect:
   enabled: true
-
 bossbar:
   enabled: false
-
-# ── Scoreboard latéral DÉSACTIVÉ ─────────────────────────
 scoreboard:
   enabled: false
-
 layout:
   enabled: false
-
 ping-spoof:
   enabled: false
-
 global-playerlist:
   enabled: false
-
+  update-latency: false
 placeholders:
-  date-format: "dd/MM/yyyy"
-  time-format: "HH:mm"
+  date-format: dd/MM/yyyy
+  time-format: HH:mm
   time-offset: 0
   register-tab-expansion: false
-
 placeholder-output-replacements:
-  "%essentials_vanished%":
-    "yes": " &8[&7Vanish&8]"
-    "no": ""
-
+  '%essentials_vanished%':
+    'yes': ' &8[&7Vanish&8]'
+    'no': ''
 conditions: {}
-
 placeholder-refresh-intervals:
   default-refresh-interval: 1000
-  "%ping%": 500
-  "%world%": 1000
-
+  '%ping%': 500
+  '%world%': 1000
 assign-groups-by-permissions: false
-
 primary-group-finding-list:
-  - default
-
+- default
 permission-refresh-interval: 10000
-
 debug: false
-
 mysql:
   enabled: false
   host: 127.0.0.1
@@ -94,19 +76,14 @@ mysql:
   username: user
   password: password
   useSSL: true
-
 proxy-support:
   enabled: false
-
 components:
   minimessage-support: true
   disable-shadow-for-heads: false
-
 config-version: 2
-
 per-world-playerlist:
   enabled: false
-
 compensate-for-packetevents-bug: false
 use-bukkit-permissions-manager: false
 use-online-uuid-in-tablist: true

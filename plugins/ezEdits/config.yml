@@ -1,7 +1,25 @@
+###############################################################
+##               ______   _____    _____   _______    _____  ##
+##              |  ____| |  __ \  |_   _| |__   __|  / ____| ##
+##   ___   ____ | |__    | |  | |   | |      | |    | (___   ##
+##  / _ \ |_  / |  __|   | |  | |   | |      | |     \___ \  ##
+## |  __/  / /  | |____  | |__| |  _| |_     | |     ____) | ##
+##  \___| /___| |______| |_____/  |_____|    |_|    |_____/  ##
+###############################################################
+## ***
+## For support, or to chat about the plugin, please join us on Discord: https://www.discord.gg/NfT3vyeKu5
+##
+## Patreon: https://www.patreon.com/ezEdits
+## Ko-Fi: https://ko-fi.com/ezedits
+##
+## Created by: eztaK & Zeranny
+## ***
+##
+## Do not edit file version
 file-version: 14
 
 updates:
-  check: false        # Désactivé : évite les requêtes HTTP au démarrage
+  check: false # Désactivé : évite les requêtes HTTP au démarrage
   inform-admins: false
 
 files:
@@ -11,7 +29,7 @@ files:
     selection: selections
 
 metrics:
-  enabled: false      # Désactivé : économise des ressources
+  enabled: false # Désactivé : économise des ressources
 
 generic:
   player:
@@ -20,111 +38,111 @@ generic:
 
 palettes:
   player:
-    max-saved-palettes: 4096    # Large pour un builder intensif
-    max-length: 512             # Palettes très longues autorisées
+    max-saved-palettes: 4096 # Large pour un builder intensif
+    max-length: 512 # Palettes très longues autorisées
 
 noise:
   player:
     max-saved-presets: 4096
   parameters:
-    max-octaves: 16             # Doublé : plus de détail dans les noises
+    max-octaves: 16 # Doublé : plus de détail dans les noises
 
 voronoialize2:
   args:
-    max-cells: 65536.0          # 16x plus que défaut → motifs complexes
+    max-cells: 65536.0 # 16x plus que défaut → motifs complexes
 
 flowfield:
   args:
-    max-lines: 16777216         # 4x plus → flowfields massifs
+    max-lines: 16777216 # 4x plus → flowfields massifs
     max-line-iterations: 262144 # 4x plus → plus de précision
 
 flowline:
   args:
-    max-length: 4096            # 4x plus long
+    max-length: 4096 # 4x plus long
 
 vines:
   args:
-    max-length: 1280            # 4x plus long
+    max-length: 1280 # 4x plus long
 
 structure:
   args:
-    max-total-size: 1024.0      # 8x plus grand
+    max-total-size: 1024.0 # 8x plus grand
 
 scatter:
   args:
-    max-total-count: 10000      # 33x plus
+    max-total-count: 10000 # 33x plus
     max-uniformity-iterations: 200
 
 array:
-  max-snap-range: 320           # Max absolu selon le code source
+  max-snap-range: 320 # Max absolu selon le code source
 
 spline:
   args:
-    max-radius: 200.0           # 4x plus grand
+    max-radius: 200.0 # 4x plus grand
 
 stainedglassgradient:
   args:
-    max-length: 256             # 4x plus long
-    max-quality: 6              # Limite hardware : ne peut pas dépasser 16
-    max-layers: 11              # Limite physique du jeu
+    max-length: 256 # 4x plus long
+    max-quality: 6 # Limite hardware : ne peut pas dépasser 16
+    max-layers: 11 # Limite physique du jeu
 
 stainedglassimage:
   args:
     max-quality: 6
     max-layers: 11
-    max-size: 7680              # 8K resolution supportée
+    max-size: 7680 # 8K resolution supportée
 
 smoothblocks:
-  max-blocks: 33554432          # 16x plus (32M blocs)
+  max-blocks: 33554432 # 16x plus (32M blocs)
   args:
-    max-radius: 32              # 4x plus grand
-    max-iterations: 128         # 2x plus
+    max-radius: 32 # 4x plus grand
+    max-iterations: 128 # 2x plus
 
 smooth:
   args:
-    max-iterations: 256         # 4x plus
+    max-iterations: 256 # 4x plus
 
 sharpen:
   args:
-    max-iterations: 256         # 4x plus
+    max-iterations: 256 # 4x plus
 
 inflate:
   args:
-    max-radius: 256.0           # 4x plus
+    max-radius: 256.0 # 4x plus
 
 deflate:
   args:
-    max-radius: 256.0           # 4x plus
+    max-radius: 256.0 # 4x plus
 
 symmetry:
   args:
-    max-copies: 512             # 4x plus
+    max-copies: 512 # 4x plus
 
 texture:
   cells:
     args:
-      max-cells: 65536.0        # 16x plus
+      max-cells: 65536.0 # 16x plus
   flow:
     args:
-      max-lines: 16777216       # 4x plus
-      max-iterations: 262144    # 4x plus
+      max-lines: 16777216 # 4x plus
+      max-iterations: 262144 # 4x plus
 
 selections:
   player:
-    max-saved-selections: 4096  # Large
+    max-saved-selections: 4096 # Large
 
 brushes:
   stroke:
-    max-points: 512             # 4x plus de points par stroke
+    max-points: 512 # 4x plus de points par stroke
 
 visualisations:
   enable-visualisations: true
-  update-interval: 1            # Chaque tick → feedback immédiat
+  update-interval: 1 # Chaque tick → feedback immédiat
 
 masks:
   near-mask:
     enabled: true
-    max-range: 64               # 4x plus de portée
+    max-range: 64 # 4x plus de portée
   noise-mask:
     enabled: true
     defaults:
