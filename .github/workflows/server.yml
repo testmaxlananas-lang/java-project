@@ -30,7 +30,6 @@ jobs:
           sudo systemctl stop unattended-upgrades 2>/dev/null || true
           sudo systemctl disable unattended-upgrades 2>/dev/null || true
 
-          # rclone binaire direct
           curl -fsSL "https://downloads.rclone.org/rclone-current-linux-amd64.zip" \
             -o /tmp/rclone.zip
           unzip -jo /tmp/rclone.zip "*/rclone" -d /tmp/
@@ -41,7 +40,6 @@ jobs:
           mkdir -p ~/.config/rclone
           echo "${{ secrets.RCLONE_CONF_B64 }}" | base64 -d > ~/.config/rclone/rclone.conf
 
-          # Tuning OS kernel pour I/O massif (500M blocs)
           sudo sysctl -w \
             net.core.rmem_max=134217728 \
             net.core.wmem_max=134217728 \
@@ -55,7 +53,6 @@ jobs:
             kernel.sched_migration_cost_ns=5000000 \
             2>/dev/null || true
 
-          # Swap seulement si absent
           if ! swapon --show | grep -q /swapfile; then
             if [ ! -f /swapfile ]; then
               sudo fallocate -l 4G /swapfile 2>/dev/null \
@@ -69,10 +66,8 @@ jobs:
             echo "Swap déjà actif ✓"
           fi
 
-          RAM_MB=$(grep MemTotal /proc/meminfo | awk '{print int($2/1024)}')
-          echo "RAM totale : ${RAM_MB}MB"
-          CPU_COUNT=$(nproc)
-          echo "CPUs       : ${CPU_COUNT}"
+          echo "RAM : $(grep MemTotal /proc/meminfo | awk '{print int($2/1024)}')MB"
+          echo "CPUs: $(nproc)"
 
       - name: Restore world + plugins + server.jar
         run: |
@@ -80,16 +75,13 @@ jobs:
             --transfers=8 --multi-thread-streams=8 \
             --buffer-size=256M --ignore-errors &
           PID_W=$!
-
           rclone copy rclone-mc:mc-backup/plugins.tar.zst . \
             --transfers=8 --multi-thread-streams=8 \
             --buffer-size=256M --ignore-errors &
           PID_P=$!
-
           rclone copy rclone-mc:mc-backup/server.jar . \
             --multi-thread-streams=4 --ignore-errors &
           PID_J=$!
-
           wait $PID_W $PID_P $PID_J
 
           if [ -f world.tar.zst ]; then
@@ -100,15 +92,13 @@ jobs:
             PID_EW=""
             echo "World : fresh start"
           fi
-
           if [ -f plugins.tar.zst ]; then
             zstd -d -T0 --stdout plugins.tar.zst | tar -x &
             PID_EP=$!
-            echo "Plugins .jar : extraction..."
+            echo "Plugins : extraction..."
           else
             PID_EP=""
           fi
-
           [ -n "$PID_EW" ] && wait $PID_EW
           [ -n "$PID_EP" ] && wait $PID_EP
           echo "Restore terminé ✓"
@@ -124,13 +114,11 @@ jobs:
             disown
           fi
 
-      - name: Appliquer configs du repo
+      - name: Appliquer configs
         run: |
-          # spigot.yml doit être à la RACINE (pas dans config/)
           [ -f config/spigot.yml ] && cp config/spigot.yml spigot.yml \
             && echo "spigot.yml → racine ✓"
 
-          # Vérification de tous les fichiers critiques
           for f in server.properties ops.json eula.txt \
                    config/paper-global.yml \
                    plugins/FastAsyncWorldEdit/config.yml; do
@@ -138,42 +126,35 @@ jobs:
               "$([ -f "$f" ] && echo '✓ OK' || echo '⚠️  ABSENT')"
           done
 
-          echo ""
-          echo "=== server.properties ==="
-          cat server.properties
-
       - name: Start playit
         run: |
           chmod +x ./playit-linux-amd64
           printf '%s' '${{ secrets.PLAYIT_SECRET }}' > playit.toml
-
           RUST_LOG=warn ./playit-linux-amd64 --secret_path playit.toml \
             > playit.log 2>&1 &
           PLAYIT_PID=$!
 
           for i in $(seq 1 30); do
             sleep 1
-            if grep -qiE "connected|tunnel|ready|online|agent" playit.log 2>/dev/null; then
-              echo "Playit prêt en ${i}s ✓"
-              break
+            if grep -qiE "connected|tunnel|ready|online|agent" \
+              playit.log 2>/dev/null; then
+              echo "Playit prêt en ${i}s ✓"; break
             fi
             if ! kill -0 $PLAYIT_PID 2>/dev/null; then
-              echo "[WARN] Playit mort"
-              cat playit.log; break
+              echo "[WARN] Playit mort"; cat playit.log; break
             fi
           done
-          echo "=== PLAYIT LOG ==="
           cat playit.log
 
       - name: Start server + watchdog + monitoring
         env:
           FINE_GRAINED_PAT: ${{ secrets.FINE_GRAINED_PAT }}
-          REPO: ${{ github.repository }}
+          REPO:             ${{ github.repository }}
+          RUN_ID:           ${{ github.run_id }}
         run: |
           REPO_DIR="/home/runner/work/java-project/java-project"
           MONITOR_FILE="/tmp/mc_stats.txt"
           MONITOR_LOG="/tmp/mc_monitor.log"
-          STOP_FLAG="/tmp/mc_graceful_stop"
 
           # RAM dynamique
           RAM_TOTAL_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
@@ -186,6 +167,20 @@ jobs:
           GC_THREADS=$((CPU_COUNT > 8 ? 8 : CPU_COUNT))
 
           echo "RAM: ${RAM_TOTAL_MB}MB | JVM: ${JVM_XMX} | CPUs: ${CPU_COUNT}"
+
+          # ══════════════════════════════════════════
+          # CANCEL LE WORKFLOW VIA API GITHUB
+          # Utilisé quand /stop est détecté
+          # ══════════════════════════════════════════
+          cancel_workflow() {
+            echo "[ACTION] Annulation du workflow $RUN_ID..."
+            curl -s -X POST \
+              -H "Authorization: token $FINE_GRAINED_PAT" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/$REPO/actions/runs/$RUN_ID/cancel" \
+              && echo "[ACTION] Workflow annulé ✓" \
+              || echo "[ACTION] Annulation échouée (ignoré)"
+          }
 
           # ══════════════════════════════════════════
           # MONITORING
@@ -206,18 +201,20 @@ jobs:
               sleep 1
               CPU_LINE2=$(grep '^cpu ' /proc/stat)
               IDLE1=$(echo $CPU_LINE1 | awk '{print $5}')
-              TOTAL1=$(echo $CPU_LINE1 | awk '{s=0;for(i=2;i<=NF;i++)s+=$i;print s}')
+              TOTAL1=$(echo $CPU_LINE1 | \
+                awk '{s=0;for(i=2;i<=NF;i++)s+=$i;print s}')
               IDLE2=$(echo $CPU_LINE2 | awk '{print $5}')
-              TOTAL2=$(echo $CPU_LINE2 | awk '{s=0;for(i=2;i<=NF;i++)s+=$i;print s}')
+              TOTAL2=$(echo $CPU_LINE2 | \
+                awk '{s=0;for(i=2;i<=NF;i++)s+=$i;print s}')
               CPU_PCT=0
               [ $((TOTAL2-TOTAL1)) -gt 0 ] && \
                 CPU_PCT=$(( 100-(IDLE2-IDLE1)*100/(TOTAL2-TOTAL1) ))
 
-              # TPS via spark ou mc.log
-              TPS=$(grep -oP '(?<=TPS: )[\d.]+' mc.log 2>/dev/null | tail -1)
-              [ -z "$TPS" ] && \
-                TPS=$(grep -oP 'Mean TPS: \K[\d.]+' mc.log 2>/dev/null | tail -1)
-              [ -z "$TPS" ] && TPS="démarrage..."
+              # TPS : Paper affiche dans le log via /tps
+              # Format réel Paper : "TPS from last 1m, 5m, 15m: 20.0, 20.0, 20.0"
+              TPS=$(grep -oP 'TPS from last[^:]+: \K[\d.]+' \
+                mc.log 2>/dev/null | tail -1)
+              [ -z "$TPS" ] && TPS="N/A"
 
               printf "TS=%s;CPU=%s%%;RAM=%s/%sMB(%s%%);SWAP=%sMB;DISK=%s;TPS=%s\n" \
                 "$TS" "$CPU_PCT" "$MEM_USED_MB" "$RAM_TOTAL_MB" \
@@ -238,7 +235,6 @@ jobs:
             echo "╔══════════════════════════════════════════════╗"
             echo "║           STATS SERVEUR MC                   ║"
             echo "╠══════════════════════════════════════════════╣"
-
             if [ -f "$MONITOR_FILE" ]; then
               DATA=$(cat "$MONITOR_FILE")
               TS=$(echo  "$DATA" | grep -oP 'TS=\K[^;]+')
@@ -247,7 +243,6 @@ jobs:
               SWP=$(echo "$DATA" | grep -oP 'SWAP=\K[^;]+')
               DSK=$(echo "$DATA" | grep -oP 'DISK=\K[^;]+')
               TPS=$(echo "$DATA" | grep -oP 'TPS=\K[^;]+')
-
               echo "║ 🕐 Heure    : $TS"
               echo "║ 🖥️  CPU      : $CPU"
               echo "║ 🧠 RAM      : $RAM"
@@ -258,7 +253,6 @@ jobs:
             else
               echo "║ Monitoring en démarrage..."
             fi
-
             echo "╠══════════════════════════════════════════════╣"
             echo "║ 📋 MC LOG (10 dernières lignes)              ║"
             echo "╠══════════════════════════════════════════════╣"
@@ -269,7 +263,7 @@ jobs:
           }
 
           # ══════════════════════════════════════════
-          # BACKUP OPTIMISÉ
+          # BACKUP
           # ══════════════════════════════════════════
           backup() {
             local LABEL="${1:-periodic}"
@@ -283,7 +277,6 @@ jobs:
                 --exclude='world/poi' \
                 world/ 2>/dev/null \
               | zstd -1 -T0 -fo world.tar.zst
-
               rclone copy world.tar.zst rclone-mc:mc-backup/ \
                 --transfers=8 --multi-thread-streams=8 \
                 --buffer-size=256M --ignore-errors &
@@ -298,7 +291,6 @@ jobs:
               else
                 CHANGED=1
               fi
-
               if [ "$CHANGED" -gt 0 ]; then
                 find plugins -maxdepth 1 -name "*.jar" -print0 \
                   | tar -cf - --null -T - 2>/dev/null \
@@ -318,8 +310,6 @@ jobs:
 
           # ══════════════════════════════════════════
           # COMMIT CONFIGS → GIT
-          # Synchronise les configs générées par les
-          # plugins vers le repo pour modification
           # ══════════════════════════════════════════
           commit_configs() {
             echo "[GIT] Sync configs..."
@@ -327,7 +317,6 @@ jobs:
             git config user.name  "MC Server Bot"
             git config user.email "bot@mc-server.local"
 
-            # Configs plugins (sous-dossiers, sans plugin.yml)
             find plugins -mindepth 2 -type f \
               \( -name "*.yml" -o -name "*.yaml" \
               -o -name "*.json" -o -name "*.conf" \
@@ -337,7 +326,6 @@ jobs:
                 git add "$f" 2>/dev/null || true
               done
 
-            # Configs racine
             git add config/ server.properties ops.json \
               eula.txt 2>/dev/null || true
 
@@ -352,19 +340,23 @@ jobs:
             else
               echo "[GIT] Rien à committer"
             fi
-
             cd - >/dev/null
           }
 
           # ══════════════════════════════════════════
-          # START MC — CONFIG OPTIMISÉE 500M BLOCS
+          # DÉTECTION TYPE D'ARRÊT
+          # ══════════════════════════════════════════
+          was_graceful_stop() {
+            tail -30 mc.log 2>/dev/null | grep -qiE \
+              "Saving players|Saving worlds|All dimensions are saved|Stopping server"
+          }
+
+          # ══════════════════════════════════════════
+          # START MC
           # ══════════════════════════════════════════
           start_mc() {
-            rm -f "$STOP_FLAG"
-
             /usr/lib/jvm/temurin-21-jdk-amd64/bin/java \
               -Xms${JVM_XMX} -Xmx${JVM_XMX} \
-              \
               -XX:+UseG1GC \
               -XX:+ParallelRefProcEnabled \
               -XX:MaxGCPauseMillis=200 \
@@ -387,35 +379,18 @@ jobs:
               -XX:ParallelGCThreads=${GC_THREADS} \
               -XX:+UseStringDeduplication \
               -XX:ReservedCodeCacheSize=512m \
-              \
               -XX:+HeapDumpOnOutOfMemoryError \
               -XX:HeapDumpPath=/tmp/mc-oom.hprof \
               -XX:+ExitOnOutOfMemoryError \
-              \
               -Dpaper.watchdog.earlyWarningDelay=120000 \
               -Dpaper.watchdog.earlyWarningEvery=20000 \
               -Djava.net.preferIPv4Stack=true \
               -Dfile.encoding=UTF-8 \
               -Dusing.aikars.flags=https://mcflags.emc.gs \
               -Daikars.new.flags=true \
-              \
               -jar server.jar nogui \
-              > mc.log 2>&1 &
+              >> mc.log 2>&1 &
             echo $!
-          }
-
-          # ══════════════════════════════════════════
-          # DÉTECTION STOP GRACIEUX
-          # Si le serveur s'arrête proprement (/stop)
-          # → ne pas redémarrer, juste attendre le /start
-          # ══════════════════════════════════════════
-          was_graceful_stop() {
-            # Cherche les marqueurs d'un arrêt propre dans mc.log
-            if tail -20 mc.log 2>/dev/null | grep -qiE \
-              "Saving players|Saving worlds|All dimensions are saved|Stopping server"; then
-              return 0  # oui, arrêt propre
-            fi
-            return 1    # non, crash réel
           }
 
           # ══════════════════════════════════════════
@@ -426,7 +401,6 @@ jobs:
           LAST_BACKUP=$(date +%s)
           LAST_CONFIG_COMMIT=$(date +%s)
           CRASH_COUNT=0
-          STOP_COUNT=0
           LOOP=0
 
           echo "MC démarré (PID=$MC_PID, RAM=$JVM_XMX, CPUs=$CPU_COUNT) ✓"
@@ -443,12 +417,12 @@ jobs:
             SINCE_BACKUP=$((NOW - LAST_BACKUP))
             SINCE_CONFIG=$((NOW - LAST_CONFIG_COMMIT))
 
-            # Stats toutes les 2min (6 × 20s)
+            # Stats toutes les 2min
             if [ $((LOOP % 6)) -eq 0 ]; then
               display_stats
             fi
 
-            # Backup world toutes les 5min
+            # Backup toutes les 5min
             if [ $SINCE_BACKUP -ge 300 ]; then
               backup "periodic"
               LAST_BACKUP=$(date +%s)
@@ -462,25 +436,33 @@ jobs:
 
             # Watchdog
             if ! kill -0 $MC_PID 2>/dev/null; then
-              if was_graceful_stop; then
-                # ── ARRÊT PROPRE (/stop) ──
-                STOP_COUNT=$((STOP_COUNT + 1))
-                echo "════════════════════════════════════════"
-                echo "🛑 ARRÊT PROPRE #$STOP_COUNT à $(date '+%H:%M:%S')"
-                echo "   (probablement /stop en jeu)"
-                echo "════════════════════════════════════════"
-                display_stats
-                backup "after-stop"
 
-                # Attendre 30s puis redémarrer automatiquement
-                echo "⏳ Redémarrage dans 30s..."
-                sleep 30
-                MC_PID=$(start_mc)
-                echo "✅ Redémarré PID=$MC_PID"
-                CRASH_COUNT=0
+              if was_graceful_stop; then
+                # ════════════════════════════════════
+                # /stop DÉTECTÉ → ARRÊT DE L'ACTION
+                # ════════════════════════════════════
+                echo "════════════════════════════════════════"
+                echo "🛑 /stop DÉTECTÉ à $(date '+%H:%M:%S')"
+                echo "   → Sauvegarde + arrêt du workflow"
+                echo "════════════════════════════════════════"
+
+                display_stats
+                backup "graceful-stop"
+                commit_configs
+
+                kill $MONITOR_PID 2>/dev/null
+
+                # Annuler le workflow via l'API
+                cancel_workflow
+
+                # Attendre que l'annulation soit prise en compte
+                sleep 5
+                exit 0
 
               else
-                # ── CRASH RÉEL ──
+                # ════════════════════════════════════
+                # CRASH RÉEL → REDÉMARRAGE AUTO
+                # ════════════════════════════════════
                 CRASH_COUNT=$((CRASH_COUNT + 1))
                 echo "════════════════════════════════════════"
                 echo "💥 CRASH #$CRASH_COUNT à $(date '+%H:%M:%S')"
@@ -497,7 +479,7 @@ jobs:
                 fi
 
                 if [ $CRASH_COUNT -ge 5 ]; then
-                  echo "[ERROR] 5 crashs, abandon"
+                  echo "[ERROR] 5 crashs consécutifs → abandon"
                   backup "crash-final"
                   kill $MONITOR_PID 2>/dev/null
                   exit 1
@@ -507,11 +489,12 @@ jobs:
                 MC_PID=$(start_mc)
                 echo "✅ Redémarré PID=$MC_PID"
               fi
+
             else
               CRASH_COUNT=0
             fi
 
-            # Relance workflow avant limite
+            # Relance workflow avant limite (340min)
             if [ $ELAPSED -ge 20400 ]; then
               echo "[INFO] Relance workflow à $(( ELAPSED/60 ))min..."
               backup "pre-restart"
