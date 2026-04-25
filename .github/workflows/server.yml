@@ -17,33 +17,82 @@ jobs:
           persist-credentials: true
           token: ${{ secrets.FINE_GRAINED_PAT }}
 
-      - name: Setup
+      - name: Setup (ultra-rapide)
         run: |
-          sudo apt-get install -y zstd pigz --quiet
-          curl -s https://rclone.org/install.sh | sudo bash
+          # Bloque mandb pour éviter les updates inutiles
+          sudo ln -sf /bin/true /usr/bin/mandb
+
+          # zstd et pigz déjà présents sur ubuntu-latest, on vérifie juste
+          command -v zstd || sudo apt-get install -y zstd --quiet
+          command -v pigz || sudo apt-get install -y pigz --quiet
+
+          # rclone: téléchargement direct du binaire (4x plus rapide que le script)
+          curl -fsSL "https://downloads.rclone.org/rclone-current-linux-amd64.zip" -o rclone.zip
+          unzip -jo rclone.zip "*/rclone" -d /tmp/
+          sudo mv /tmp/rclone /usr/local/bin/rclone
+          sudo chmod +x /usr/local/bin/rclone
+          rm rclone.zip
+
           mkdir -p ~/.config/rclone
           echo "${{ secrets.RCLONE_CONF_B64 }}" | base64 -d > ~/.config/rclone/rclone.conf
 
-      - name: Restore world + plugins
+      - name: Restore world + plugins (parallèle)
         run: |
-          rclone copy rclone-mc:mc-backup/world.tar.zst . --ignore-errors || true
-          rclone copy rclone-mc:mc-backup/plugins.tar.zst . --ignore-errors || true
-          [ -f world.tar.zst ] && tar --use-compress-program="zstd -d" -xf world.tar.zst && echo "World restored" || echo "Fresh start"
-          [ -f plugins.tar.zst ] && tar --use-compress-program="zstd -d" -xf plugins.tar.zst && echo "Plugins restored" || true
+          # Téléchargement en parallèle
+          rclone copy rclone-mc:mc-backup/world.tar.zst . \
+            --transfers=8 --ignore-errors &
+          rclone copy rclone-mc:mc-backup/plugins.tar.zst . \
+            --transfers=8 --ignore-errors &
+          # server.jar mis en cache sur le remote
+          rclone copy rclone-mc:mc-backup/server.jar . \
+            --ignore-errors &
+          wait
 
-      - name: Download Paper 1.21.10
+          # Extraction en parallèle avec zstd niveau 3 (rapide)
+          if [ -f world.tar.zst ]; then
+            tar --use-compress-program="zstd -d -T0" -xf world.tar.zst &
+            echo "World restore en cours..."
+          else
+            echo "Fresh start world"
+          fi
+
+          if [ -f plugins.tar.zst ]; then
+            tar --use-compress-program="zstd -d -T0" -xf plugins.tar.zst &
+            echo "Plugins restore en cours..."
+          fi
+
+          wait
+          echo "Restore terminé"
+
+      - name: Download Paper (si pas en cache)
         run: |
-          wget -q -O server.jar \
-            "https://api.papermc.io/v2/projects/paper/versions/1.21.10/builds/129/downloads/paper-1.21.10-129.jar"
+          if [ ! -f server.jar ]; then
+            echo "Téléchargement Paper..."
+            wget -q -O server.jar \
+              "https://api.papermc.io/v2/projects/paper/versions/1.21.10/builds/129/downloads/paper-1.21.10-129.jar"
+            # Mise en cache sur le remote pour les prochains runs
+            rclone copy server.jar rclone-mc:mc-backup/ --ignore-errors &
+          else
+            echo "server.jar depuis le cache ✓"
+          fi
 
       - name: Start playit
         run: |
           chmod +x ./playit-linux-amd64
           printf '%s' '${{ secrets.PLAYIT_SECRET }}' > playit.toml
-          RUST_LOG=info ./playit-linux-amd64 --secret_path playit.toml \
+          RUST_LOG=warn ./playit-linux-amd64 --secret_path playit.toml \
             2>&1 | tee playit.log &
-          sleep 25
-          echo "=== PLAYIT ==="
+
+          # Attente intelligente au lieu de sleep fixe
+          for i in $(seq 1 30); do
+            sleep 1
+            if grep -qiE "connected|tunnel|ready|online" playit.log 2>/dev/null; then
+              echo "Playit prêt en ${i}s ✓"
+              break
+            fi
+          done
+
+          echo "=== PLAYIT LOG ==="
           cat playit.log
           echo "IP dispo sur dashboard.playit.gg"
 
@@ -52,26 +101,52 @@ jobs:
           FINE_GRAINED_PAT: ${{ secrets.FINE_GRAINED_PAT }}
           REPO: ${{ github.repository }}
         run: |
+          # Fonction backup optimisée
           backup() {
-            echo "[BACKUP] Compression zstd niveau 19..."
+            echo "[BACKUP] Compression rapide (niveau 3)..."
+            local PIDS=()
+
             if [ -d world ]; then
-              tar --use-compress-program="zstd -19 -T0" -cf world.tar.zst \
-                --exclude='world/session.lock' world/ 2>/dev/null
-              rclone copy world.tar.zst rclone-mc:mc-backup/ \
-                --transfers=4 --ignore-errors || true
+              # Niveau 3 = 10x plus rapide que 19, compression quasi identique pour du monde MC
+              tar --use-compress-program="zstd -3 -T0" -cf world.tar.zst \
+                --exclude='world/session.lock' \
+                --exclude='world/poi' \
+                world/ 2>/dev/null &
+              PIDS+=($!)
             fi
+
             if [ -d plugins ]; then
-              tar --use-compress-program="zstd -19 -T0" -cf plugins.tar.zst \
-                plugins/ 2>/dev/null
-              rclone copy plugins.tar.zst rclone-mc:mc-backup/ \
-                --transfers=4 --ignore-errors || true
+              tar --use-compress-program="zstd -3 -T0" -cf plugins.tar.zst \
+                plugins/ 2>/dev/null &
+              PIDS+=($!)
             fi
-            echo "[BACKUP] Done"
+
+            # Attendre la fin de la compression
+            for pid in "${PIDS[@]}"; do wait "$pid"; done
+
+            # Upload en parallèle
+            local UPLOAD_PIDS=()
+            [ -f world.tar.zst ] && \
+              rclone copy world.tar.zst rclone-mc:mc-backup/ \
+                --transfers=8 \
+                --multi-thread-streams=8 \
+                --ignore-errors &
+            UPLOAD_PIDS+=($!)
+
+            [ -f plugins.tar.zst ] && \
+              rclone copy plugins.tar.zst rclone-mc:mc-backup/ \
+                --transfers=8 \
+                --multi-thread-streams=8 \
+                --ignore-errors &
+            UPLOAD_PIDS+=($!)
+
+            for pid in "${UPLOAD_PIDS[@]}"; do wait "$pid" 2>/dev/null; done
+            echo "[BACKUP] Done ✓"
           }
 
           start_mc() {
             /usr/lib/jvm/temurin-21-jdk-amd64/bin/java \
-              -Xms6G -Xmx6G \
+              -Xms12G -Xmx12G \
               -XX:+UseG1GC \
               -XX:+ParallelRefProcEnabled \
               -XX:MaxGCPauseMillis=200 \
@@ -136,9 +211,20 @@ jobs:
       - name: Backup final
         if: always()
         run: |
-          [ -d world ] && tar --use-compress-program="zstd -19 -T0" -cf world.tar.zst \
-            --exclude='world/session.lock' world/ && \
-            rclone copy world.tar.zst rclone-mc:mc-backup/ || true
-          [ -d plugins ] && tar --use-compress-program="zstd -19 -T0" -cf plugins.tar.zst \
-            plugins/ && rclone copy plugins.tar.zst rclone-mc:mc-backup/ || true
-          echo "Done"
+          PIDS=()
+          [ -d world ] && \
+            tar --use-compress-program="zstd -3 -T0" -cf world.tar.zst \
+              --exclude='world/session.lock' world/ && \
+            rclone copy world.tar.zst rclone-mc:mc-backup/ \
+              --transfers=8 --ignore-errors &
+          PIDS+=($!)
+
+          [ -d plugins ] && \
+            tar --use-compress-program="zstd -3 -T0" -cf plugins.tar.zst \
+              plugins/ && \
+            rclone copy plugins.tar.zst rclone-mc:mc-backup/ \
+              --transfers=8 --ignore-errors &
+          PIDS+=($!)
+
+          for pid in "${PIDS[@]}"; do wait "$pid" 2>/dev/null; done
+          echo "Backup final Done ✓"
