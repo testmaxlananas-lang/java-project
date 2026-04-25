@@ -5,6 +5,9 @@ on:
   schedule:
     - cron: '0 */5 * * *'
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true   # Fix warning Node.js 20
+
 jobs:
   run:
     runs-on: ubuntu-latest
@@ -19,14 +22,10 @@ jobs:
 
       - name: Setup
         run: |
-          # Bloquer mandb
           sudo ln -sf /bin/true /usr/bin/mandb
-
-          # Désactiver unattended-upgrades
           sudo systemctl stop unattended-upgrades 2>/dev/null || true
           sudo systemctl disable unattended-upgrades 2>/dev/null || true
 
-          # rclone binaire direct
           curl -fsSL "https://downloads.rclone.org/rclone-current-linux-amd64.zip" \
             -o /tmp/rclone.zip
           unzip -jo /tmp/rclone.zip "*/rclone" -d /tmp/
@@ -34,11 +33,9 @@ jobs:
           sudo chmod +x /usr/local/bin/rclone
           rm /tmp/rclone.zip
 
-          # Config rclone
           mkdir -p ~/.config/rclone
           echo "${{ secrets.RCLONE_CONF_B64 }}" | base64 -d > ~/.config/rclone/rclone.conf
 
-          # Tuning réseau/VM
           sudo sysctl -w \
             net.core.rmem_max=134217728 \
             net.core.wmem_max=134217728 \
@@ -49,28 +46,21 @@ jobs:
             vm.dirty_ratio=15 \
             vm.dirty_background_ratio=5 2>/dev/null || true
 
-          # Swap 4G — vérifie si /swapfile existe déjà
           if ! swapon --show | grep -q /swapfile; then
             if [ ! -f /swapfile ]; then
               sudo fallocate -l 4G /swapfile 2>/dev/null \
                 || sudo dd if=/dev/zero of=/swapfile bs=1M count=4096 status=none
             fi
             sudo chmod 600 /swapfile
-            sudo mkswap /swapfile  2>/dev/null || true
-            sudo swapon /swapfile  2>/dev/null || true
+            sudo mkswap /swapfile 2>/dev/null || true
+            sudo swapon /swapfile 2>/dev/null || true
             echo "Swap activé ✓"
           else
             echo "Swap déjà actif ✓"
           fi
 
-      # ──────────────────────────────────────────────────────────
-      # RESTORE : world + plugins (drive) + configs (repo git)
-      # Les plugins viennent du DRIVE (données runtime)
-      # Les configs viennent du REPO (versionnées dans git)
-      # ──────────────────────────────────────────────────────────
       - name: Restore world + plugins + server.jar
         run: |
-          # Téléchargement simultané
           rclone copy rclone-mc:mc-backup/world.tar.zst . \
             --transfers=8 --multi-thread-streams=8 \
             --buffer-size=256M --ignore-errors &
@@ -87,7 +77,6 @@ jobs:
 
           wait $PID_W $PID_P $PID_J
 
-          # Extraction parallèle
           if [ -f world.tar.zst ]; then
             zstd -d -T0 --stdout world.tar.zst | tar -x &
             PID_EW=$!
@@ -122,58 +111,46 @@ jobs:
             disown
           fi
 
-      # ──────────────────────────────────────────────────────────
-      # APPLICATION DES CONFIGS DEPUIS LE REPO
-      # Structure attendue dans git :
-      #
-      #   config/
-      #     paper-global.yml
-      #     spigot.yml
-      #   plugins/
-      #     EssentialsX/       ← configs des plugins
-      #       config.yml
-      #     WorldEdit/
-      #       config.yml
-      #     ... etc
-      #   server.properties
-      #   ops.json
-      #   eula.txt
-      # ──────────────────────────────────────────────────────────
-      - name: Appliquer configs du repo
+      # ──────────────────────────────────────────────────────
+      # CORRECTION DU BUG : le repo EST le workdir
+      # Les fichiers du repo sont DÉJÀ au bon endroit
+      # On applique seulement les configs plugins (git → runtime)
+      # ──────────────────────────────────────────────────────
+      - name: Appliquer configs du repo vers le runtime
         run: |
-          # paper-global.yml et spigot.yml
-          mkdir -p config
-          if [ -f config/paper-global.yml ]; then
-            cp config/paper-global.yml config/paper-global.yml
-            echo "paper-global.yml appliqué ✓"
-          fi
+          REPO_DIR="/home/runner/work/java-project/java-project"
+
+          echo "server.properties : $([ -f server.properties ] && echo 'OK ✓' || echo 'absent')"
+          echo "ops.json          : $([ -f ops.json ]          && echo 'OK ✓' || echo 'absent')"
+          echo "eula.txt          : $([ -f eula.txt ]          && echo 'OK ✓' || echo 'absent')"
+          echo "config/paper      : $([ -f config/paper-global.yml ] && echo 'OK ✓' || echo 'absent')"
+          echo "config/spigot     : $([ -f config/spigot.yml ] && echo 'OK ✓' || echo 'absent')"
+
+          # paper-global.yml doit être dans config/ (déjà le cas, pas besoin de copier)
+          # spigot.yml doit être à la RACINE du serveur, pas dans config/
           if [ -f config/spigot.yml ]; then
             cp config/spigot.yml spigot.yml
-            echo "spigot.yml appliqué ✓"
+            echo "spigot.yml → racine ✓"
           fi
 
-          # server.properties, ops.json, eula.txt
-          # (déjà à la racine du repo = déjà à la racine du runner)
-          echo "server.properties : $([ -f server.properties ] && echo 'OK ✓' || echo 'absent')"
-          echo "ops.json          : $([ -f ops.json ] && echo 'OK ✓' || echo 'absent')"
-          echo "eula.txt          : $([ -f eula.txt ] && echo 'OK ✓' || echo 'absent')"
-
-          # Configs des plugins depuis le repo → écrase celles du drive
-          # Le dossier plugins/PluginName/ dans git contient les .yml de config
+          # Configs plugins : repo a des .yml dans plugins/PluginName/
+          # Le restore du drive a déjà extrait les .jar dans plugins/
+          # On applique les configs git PAR-DESSUS (sans toucher aux .jar)
           if [ -d plugins ]; then
-            echo "Application des configs de plugins depuis le repo..."
-            # On copie uniquement les .yml/.json/.conf (pas les .jar)
-            find plugins -type f \
+            echo "Fusion configs plugins (git → runtime)..."
+            find "$REPO_DIR/plugins" -type f \
               \( -name "*.yml" -o -name "*.yaml" \
               -o -name "*.json" -o -name "*.conf" \
               -o -name "*.properties" -o -name "*.toml" \) \
-            | while read -r cfg; do
-                dest="$cfg"
-                destdir=$(dirname "$dest")
-                mkdir -p "$destdir"
-                cp "$cfg" "$dest" 2>/dev/null || true
-              done
-            echo "Configs plugins appliquées ✓"
+              ! -name "plugin.yml" \
+              ! -name "plugin.yaml" \
+            2>/dev/null | while IFS= read -r src; do
+              # src = /home/runner/work/.../plugins/EssentialsX/config.yml
+              # dest = même chemin (déjà dans le workdir)
+              # Pas besoin de copier, les fichiers sont déjà là !
+              echo "  Config présente : ${src#$REPO_DIR/}"
+            done
+            echo "Configs plugins OK ✓ (déjà en place via git checkout)"
           fi
 
       - name: Start playit
@@ -185,7 +162,6 @@ jobs:
             > playit.log 2>&1 &
           PLAYIT_PID=$!
 
-          # Attente intelligente max 30s
           for i in $(seq 1 30); do
             sleep 1
             if grep -qiE "connected|tunnel|ready|online|agent" playit.log 2>/dev/null; then
@@ -208,110 +184,105 @@ jobs:
           FINE_GRAINED_PAT: ${{ secrets.FINE_GRAINED_PAT }}
           REPO: ${{ github.repository }}
         run: |
+          REPO_DIR="/home/runner/work/java-project/java-project"
 
-          # ════════════════════════════════════════
-          # BACKUP FUNCTION
-          # World    → zstd -1  (vitesse max)
-          # Plugins  → zstd -3  (seulement si .jar modifié)
-          # Configs  → commitées dans git (pas dans le drive)
-          # ════════════════════════════════════════
+          # ══════════════════════════════════════
+          # BACKUP : world (zstd-1) + plugins jars (zstd-3)
+          # Configs → dans git via commit_configs()
+          # ══════════════════════════════════════
           backup() {
             local LABEL="${1:-periodic}"
             echo "[BACKUP:$LABEL] Start..."
             local T0=$(date +%s)
 
-            # ── World (toujours) ──
             if [ -d world ]; then
               tar -cf - \
                 --exclude='world/session.lock' \
                 --exclude='world/poi' \
                 world/ 2>/dev/null \
               | zstd -1 -T0 -fo world.tar.zst
+
               rclone copy world.tar.zst rclone-mc:mc-backup/ \
                 --transfers=8 --multi-thread-streams=8 \
                 --buffer-size=256M --ignore-errors &
               local UP_W=$!
             fi
 
-            # ── Plugins (seulement si .jar changé) ──
-            # Les configs plugins sont dans git, pas besoin de les sauver
+            # Plugins : seulement les .jar, seulement si modifiés
             if [ -d plugins ]; then
-              local CHANGED=$(find plugins -name "*.jar" \
-                -newer plugins.tar.zst 2>/dev/null | wc -l)
-              if [ "$CHANGED" -gt 0 ] || [ ! -f plugins.tar.zst ]; then
-                echo "[BACKUP] Plugins modifiés, recompression..."
-                # On sauvegarde UNIQUEMENT les .jar (les configs sont dans git)
-                tar -cf - \
-                  --include='plugins/*.jar' \
-                  --exclude='plugins/*' \
-                  plugins/*.jar 2>/dev/null \
-                | zstd -3 -T0 -fo plugins.tar.zst
+              local CHANGED=0
+              if [ -f plugins.tar.zst ]; then
+                CHANGED=$(find plugins -maxdepth 1 -name "*.jar" \
+                  -newer plugins.tar.zst 2>/dev/null | wc -l)
+              else
+                CHANGED=1
+              fi
+
+              if [ "$CHANGED" -gt 0 ]; then
+                echo "[BACKUP] Plugins .jar modifiés, compression..."
+                # Uniquement les .jar à la racine de plugins/
+                find plugins -maxdepth 1 -name "*.jar" -print0 \
+                  | tar -cf - --null -T - 2>/dev/null \
+                  | zstd -3 -T0 -fo plugins.tar.zst
+
                 rclone copy plugins.tar.zst rclone-mc:mc-backup/ \
                   --transfers=4 --multi-thread-streams=4 \
                   --buffer-size=128M --ignore-errors &
                 local UP_P=$!
               else
-                echo "[BACKUP] Plugins inchangés, skip ✓"
+                echo "[BACKUP] Plugins .jar inchangés, skip ✓"
               fi
             fi
 
             wait ${UP_W:-} ${UP_P:-} 2>/dev/null
-            local T1=$(date +%s)
-            echo "[BACKUP:$LABEL] Done en $((T1-T0))s ✓"
+            echo "[BACKUP:$LABEL] Done en $(( $(date +%s) - T0 ))s ✓"
           }
 
-          # ════════════════════════════════════════
-          # COMMIT CONFIGS VERS GIT
-          # Sauvegarde les configs plugins dans le repo
-          # pour pouvoir les modifier via GitHub/dashboard
-          # ════════════════════════════════════════
+          # ══════════════════════════════════════
+          # COMMIT CONFIGS → GIT
+          # Sauvegarde les configs plugins générées
+          # par les plugins (nouveaux fichiers créés au runtime)
+          # ══════════════════════════════════════
           commit_configs() {
-            echo "[GIT] Sauvegarde configs plugins..."
-            cd /home/runner/work/java-project/java-project
+            echo "[GIT] Sync configs plugins..."
+            cd "$REPO_DIR"
 
             git config user.name  "MC Server Bot"
             git config user.email "bot@mc-server.local"
 
-            # Copier configs générées par les plugins vers le repo
-            if [ -d /home/runner/work/java-project/java-project/../../../ ]; then
-              true
-            fi
+            # Copier configs de plugins (sous-dossiers) vers git
+            # Les .jar sont ignorés via .gitignore
+            local CHANGED=false
 
-            local WORKDIR="/home/runner/work/java-project/java-project"
-            local MCDIR="/home/runner/work/java-project/java-project"
-
-            # Copie des configs .yml des plugins (pas les .jar)
-            find "$MCDIR/plugins" -type f \
+            find plugins -mindepth 2 -type f \
               \( -name "*.yml" -o -name "*.yaml" \
               -o -name "*.json" -o -name "*.conf" \
               -o -name "*.properties" -o -name "*.toml" \) \
               ! -name "plugin.yml" \
               ! -name "plugin.yaml" \
-            2>/dev/null | while read -r f; do
-              # Chemin relatif depuis le workdir
-              rel="${f#$MCDIR/}"
-              mkdir -p "$(dirname "$rel")"
-              cp "$f" "$rel" 2>/dev/null || true
+              2>/dev/null | while IFS= read -r f; do
+                # f est déjà dans REPO_DIR, pas besoin de copier
+                git add "$f" 2>/dev/null || true
             done
 
-            # Commit si changements
-            git add plugins/ config/ server.properties ops.json 2>/dev/null || true
-            if ! git diff --cached --quiet; then
-              git commit -m "🔧 [bot] sync configs $(date '+%H:%M')" \
-                --no-verify 2>/dev/null
-              git push \
+            git add config/ server.properties ops.json 2>/dev/null || true
+
+            if ! git diff --cached --quiet 2>/dev/null; then
+              git commit -m "🔧 [bot] sync configs $(date '+%H:%M:%S')" \
+                --no-verify 2>/dev/null \
+              && git push \
                 "https://x-access-token:$FINE_GRAINED_PAT@github.com/$REPO.git" \
-                main 2>/dev/null \
-                && echo "[GIT] Push configs ✓" \
-                || echo "[GIT] Push échoué (ignoré)"
+                HEAD:main 2>/dev/null \
+              && echo "[GIT] Push ✓" \
+              || echo "[GIT] Push échoué (ignoré)"
             else
-              echo "[GIT] Aucune config modifiée"
+              echo "[GIT] Rien à committer"
             fi
           }
 
-          # ════════════════════════════════════════
+          # ══════════════════════════════════════
           # START MC
-          # ════════════════════════════════════════
+          # ══════════════════════════════════════
           start_mc() {
             /usr/lib/jvm/temurin-21-jdk-amd64/bin/java \
               -Xms13G -Xmx13G \
@@ -345,9 +316,9 @@ jobs:
             echo $!
           }
 
-          # ════════════════════════════════════════
+          # ══════════════════════════════════════
           # BOUCLE PRINCIPALE
-          # ════════════════════════════════════════
+          # ══════════════════════════════════════
           MC_PID=$(start_mc)
           START_TIME=$(date +%s)
           LAST_BACKUP=$(date +%s)
@@ -367,11 +338,11 @@ jobs:
 
             # Log tail toutes les 5min
             if [ $((LOOP % 15)) -eq 0 ]; then
-              echo "=== MC LOG [${ELAPSED}s] ==="
+              echo "=== MC LOG [$(( ELAPSED/60 ))min] ==="
               tail -5 mc.log 2>/dev/null || true
             fi
 
-            # Backup world toutes les 5min
+            # Backup toutes les 5min
             if [ $SINCE_BACKUP -ge 300 ]; then
               backup "periodic"
               LAST_BACKUP=$(date +%s)
@@ -383,13 +354,13 @@ jobs:
               LAST_CONFIG_COMMIT=$(date +%s)
             fi
 
-            # Watchdog crash
+            # Watchdog
             if ! kill -0 $MC_PID 2>/dev/null; then
               CRASH_COUNT=$((CRASH_COUNT + 1))
               echo "[WARN] Crash #$CRASH_COUNT"
               tail -30 mc.log 2>/dev/null || true
               if [ $CRASH_COUNT -ge 5 ]; then
-                echo "[ERROR] 5 crashs, abandon"
+                echo "[ERROR] 5 crashs consécutifs, abandon"
                 backup "crash-final"
                 exit 1
               fi
@@ -400,9 +371,9 @@ jobs:
               CRASH_COUNT=0
             fi
 
-            # Relance 10min avant limite
+            # Relance 10min avant limite (350min → 340min = 20400s)
             if [ $ELAPSED -ge 20400 ]; then
-              echo "[INFO] Relance workflow (${ELAPSED}s)..."
+              echo "[INFO] Relance workflow ($(( ELAPSED/60 ))min)..."
               backup "pre-restart"
               commit_configs
 
@@ -423,7 +394,6 @@ jobs:
         run: |
           echo "[BACKUP FINAL] Démarrage..."
 
-          # World
           if [ -d world ]; then
             tar -cf - \
               --exclude='world/session.lock' \
@@ -435,10 +405,10 @@ jobs:
             PID_W=$!
           fi
 
-          # Plugins (jars uniquement)
           if [ -d plugins ]; then
-            tar -cf - plugins/*.jar 2>/dev/null \
-            | zstd -3 -T0 -fo plugins.tar.zst
+            find plugins -maxdepth 1 -name "*.jar" -print0 \
+              | tar -cf - --null -T - 2>/dev/null \
+              | zstd -3 -T0 -fo plugins.tar.zst
             rclone copy plugins.tar.zst rclone-mc:mc-backup/ \
               --transfers=4 --multi-thread-streams=4 \
               --ignore-errors &
