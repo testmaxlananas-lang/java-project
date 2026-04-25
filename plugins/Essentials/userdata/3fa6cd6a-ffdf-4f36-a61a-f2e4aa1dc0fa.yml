@@ -16,8 +16,8 @@ timestamps:
   mute: 0
   jail: 0
   onlinejail: 0
-  logout: 0
-  login: 1777151919421
+  logout: 1777154054616
+  login: 1777154057627
 money: '0'
 last-account-name: StaSolaire
 lastlocation:
@@ -28,3 +28,11 @@ lastlocation:
   z: -56.68274953949166
   yaw: 117.17074584960938
   pitch: 0.9039900898933411
+logoutlocation:
+  world: ebf32e06-abc5-4560-98b9-de82e5dd6cc9
+  world-name: InterditAStaSolaire
+  x: -220.09248833915962
+  y: 122.48279239597083
+  z: 151.1098025464468
+  yaw: 170.05001831054688
+  pitch: 43.3403434753418

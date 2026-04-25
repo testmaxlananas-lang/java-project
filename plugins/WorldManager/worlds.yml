@@ -1,0 +1,10 @@
+worlds:
+  interditastasolaire:
+    name: InterditAStaSolaire
+    description: Apagnan
+    owner-uuid: 49c78fec-0fa0-407c-8055-ad7ec3d149d4
+    owner-name: MaxLananas
+    type: flat
+    created-at: 1777153679913
+    private: false
+    allowed-players: []
