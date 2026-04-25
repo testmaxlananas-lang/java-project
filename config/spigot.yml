@@ -1,0 +1,7 @@
+world-settings:
+  default:
+    view-distance: 20
+    merge-radius:
+      item: 3.5
+      exp: 6.0
+    mob-spawn-range: 4
