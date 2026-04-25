@@ -1,0 +1,4 @@
+chunk-loading:
+  autoconfig-send-distance: true
+  target-player-chunk-send-rate: 100.0
+  global-max-chunk-load-rate: -1.0
