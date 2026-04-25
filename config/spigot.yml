@@ -5,3 +5,6 @@ world-settings:
       item: 3.5
       exp: 6.0
     mob-spawn-range: 4
+  settings:
+  timeout-time: 120       # était 60
+  restart-on-crash: false # désactiver restart auto
