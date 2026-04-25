@@ -1,0 +1,73 @@
+{
+  "noise": [
+    {
+      "name": "@voronoiedge",
+      "properties": {
+        "noiseType": "Cellular",
+        "seed": "1",
+        "frequency": "0.01",
+        "cellularReturnType": "Distance2Sub",
+        "cellularDistanceFunction": "Euclidean",
+        "cellularJitterModifier": "1.0",
+        "domainWarpType": "None",
+        "domainWarpAmp": "10.0",
+        "domainWarpFreq": "0.01",
+        "domainWarpOct": "1",
+        "fractalType": "None",
+        "octaves": "1",
+        "gain": "0.5",
+        "lacunarity": "2.0",
+        "weightedStrength": "0.0",
+        "pingPongStrength": "2.0",
+        "inverted": "false"
+      }
+    },
+    {
+      "name": "@ridged",
+      "properties": {
+        "noiseType": "Perlin",
+        "seed": "1",
+        "frequency": "0.01",
+        "cellularReturnType": "Distance",
+        "cellularDistanceFunction": "Euclidean",
+        "cellularJitterModifier": "1.0",
+        "domainWarpType": "None",
+        "domainWarpAmp": "10.0",
+        "domainWarpFreq": "0.01",
+        "domainWarpOct": "1",
+        "fractalType": "Ridged",
+        "octaves": "1",
+        "gain": "0.5",
+        "lacunarity": "2.0",
+        "weightedStrength": "0.0",
+        "pingPongStrength": "2.0",
+        "inverted": "false"
+      }
+    },
+    {
+      "name": "@smoothcells",
+      "properties": {
+        "noiseType": "Cellular",
+        "seed": "1",
+        "frequency": "0.1",
+        "cellularNoiseLookup": "OpenSimplex2S",
+        "cellularNoiseLookupFrequency": "0.05",
+        "cellularReturnType": "NoiseLookup",
+        "cellularDistanceFunction": "Euclidean",
+        "cellularJitterModifier": "1.0",
+        "domainWarpType": "None",
+        "domainWarpAmp": "10.0",
+        "domainWarpFreq": "0.01",
+        "domainWarpOct": "1",
+        "fractalType": "None",
+        "octaves": "1",
+        "gain": "0.5",
+        "lacunarity": "2.0",
+        "weightedStrength": "0.0",
+        "pingPongStrength": "2.0",
+        "inverted": "false",
+        "yScaling": "1.0"
+      }
+    }
+  ]
+}

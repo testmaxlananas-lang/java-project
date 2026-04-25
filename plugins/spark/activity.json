@@ -1,0 +1,15 @@
+[
+  {
+    "user": {
+      "type": "player",
+      "name": "MaxLananas",
+      "uniqueId": "49c78fec-0fa0-407c-8055-ad7ec3d149d4"
+    },
+    "time": 1777144732570,
+    "type": "Profiler",
+    "data": {
+      "type": "url",
+      "value": "https://spark.lucko.me/XVb02Rd8yF"
+    }
+  }
+]
