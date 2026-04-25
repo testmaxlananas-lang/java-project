@@ -1,124 +1,133 @@
-###############################################################
-##               ______   _____    _____   _______    _____  ##
-##              |  ____| |  __ \  |_   _| |__   __|  / ____| ##
-##   ___   ____ | |__    | |  | |   | |      | |    | (___   ##
-##  / _ \ |_  / |  __|   | |  | |   | |      | |     \___ \  ##
-## |  __/  / /  | |____  | |__| |  _| |_     | |     ____) | ##
-##  \___| /___| |______| |_____/  |_____|    |_|    |_____/  ##
-###############################################################
-## ***
-## For support, or to chat about the plugin, please join us on Discord: https://www.discord.gg/NfT3vyeKu5
-##
-## Patreon: https://www.patreon.com/ezEdits
-## Ko-Fi: https://ko-fi.com/ezedits
-##
-## Created by: eztaK & Zeranny
-## ***
-##
-## Do not edit file version
 file-version: 14
 
-updates: # Check for plugin updates
-  check: true
-  inform-admins: true # Sends a message to server operators when they log in
-files: # Where to store/load ezEdits files. Assumes the ezEdits plugin folder as the starting location
-  directory: # Do not point multiple to the same folder
+updates:
+  check: false        # Désactivé : évite les requêtes HTTP au démarrage
+  inform-admins: false
+
+files:
+  directory:
     noise: noise
     palette: palettes
     selection: selections
-metrics: # Enables anonymous usage metrics via bstats: https://bstats.org/plugin/bukkit/ezEdits/22361
-  enabled: true # Changing this setting requires a server restart
+
+metrics:
+  enabled: false      # Désactivé : économise des ressources
+
 generic:
   player:
-    max-block-trace: 512
+    # 1024 blocs de portée → suffisant pour tous les outils
+    max-block-trace: 1024
+
 palettes:
   player:
-    max-saved-palettes: 1024
-    max-length: 128
+    max-saved-palettes: 4096    # Large pour un builder intensif
+    max-length: 512             # Palettes très longues autorisées
+
 noise:
   player:
-    max-saved-presets: 1024
+    max-saved-presets: 4096
   parameters:
-    max-octaves: 8
+    max-octaves: 16             # Doublé : plus de détail dans les noises
+
 voronoialize2:
   args:
-    max-cells: 4096.0
-flowfield: # See also: Texturing Commands > Flow
+    max-cells: 65536.0          # 16x plus que défaut → motifs complexes
+
+flowfield:
   args:
-    max-lines: 4194304
-    max-line-iterations: 65536
+    max-lines: 16777216         # 4x plus → flowfields massifs
+    max-line-iterations: 262144 # 4x plus → plus de précision
+
 flowline:
   args:
-    max-length: 1024
+    max-length: 4096            # 4x plus long
+
 vines:
   args:
-    max-length: 320
+    max-length: 1280            # 4x plus long
+
 structure:
   args:
-    max-total-size: 128.0
+    max-total-size: 1024.0      # 8x plus grand
+
 scatter:
   args:
-    max-total-count: 300
-    max-uniformity-iterations: 30
+    max-total-count: 10000      # 33x plus
+    max-uniformity-iterations: 200
+
 array:
-  max-snap-range: 96 # Caps at 320 blocks
+  max-snap-range: 320           # Max absolu selon le code source
+
 spline:
   args:
-    max-radius: 50.0
+    max-radius: 200.0           # 4x plus grand
+
 stainedglassgradient:
   args:
-    max-length: 64
-    max-quality: 6 # Quality cannot go above 16
-    max-layers: 11 # You cannot see through more than 11 layers of stained glass
+    max-length: 256             # 4x plus long
+    max-quality: 6              # Limite hardware : ne peut pas dépasser 16
+    max-layers: 11              # Limite physique du jeu
+
 stainedglassimage:
   args:
-    max-quality: 6 # Quality cannot go above 16
-    max-layers: 11 # You cannot see through more than 11 layers of stained glass
-    max-size: 1920
+    max-quality: 6
+    max-layers: 11
+    max-size: 7680              # 8K resolution supportée
+
 smoothblocks:
-  max-blocks: 2097152
+  max-blocks: 33554432          # 16x plus (32M blocs)
   args:
-    max-radius: 8
-    max-iterations: 24
+    max-radius: 32              # 4x plus grand
+    max-iterations: 128         # 2x plus
+
 smooth:
   args:
-    max-iterations: 64
+    max-iterations: 256         # 4x plus
+
 sharpen:
   args:
-    max-iterations: 64
+    max-iterations: 256         # 4x plus
+
 inflate:
   args:
-    max-radius: 64.0
+    max-radius: 256.0           # 4x plus
+
 deflate:
   args:
-    max-radius: 64.0
+    max-radius: 256.0           # 4x plus
+
 symmetry:
   args:
-    max-copies: 128
+    max-copies: 512             # 4x plus
+
 texture:
   cells:
     args:
-      max-cells: 4096.0
-  flow: # See also: Flowfield Based Commands > Flowfield
+      max-cells: 65536.0        # 16x plus
+  flow:
     args:
-      max-lines: 4194304
-      max-iterations: 65536
+      max-lines: 16777216       # 4x plus
+      max-iterations: 262144    # 4x plus
+
 selections:
   player:
-    max-saved-selections: 1024
+    max-saved-selections: 4096  # Large
+
 brushes:
   stroke:
-    max-points: 128
-visualisations: # Certain tools use BlockDisplay entities to give visual feedback to the user
+    max-points: 512             # 4x plus de points par stroke
+
+visualisations:
   enable-visualisations: true
-  update-interval: 1 # How frequent the entities are updated: 1 means every tick (fastest), 20 means once every second
+  update-interval: 1            # Chaque tick → feedback immédiat
+
 masks:
   near-mask:
     enabled: true
-    max-range: 16
+    max-range: 64               # 4x plus de portée
   noise-mask:
     enabled: true
-    defaults: # Prebuilt noise presets as masks
+    defaults:
       voronoiedge:
         enabled: true
       ridged:
@@ -147,10 +156,11 @@ masks:
     enabled: true
   lightsource-mask:
     enabled: true
+
 patterns:
   noise-pattern:
     enabled: true
-    defaults: # Prebuilt noise presets as patterns
+    defaults:
       voronoiedge:
         enabled: true
       ridged:
@@ -167,8 +177,14 @@ patterns:
     enabled: true
   hotbar-pattern:
     enabled: true
+
 memory:
-  chunking-activation-threshold: 5000000 # Minimum block count before operation chunking occurs
+  # 1M blocs avant chunking (au lieu de 5M)
+  # Plus petit = chunking plus tôt = mémoire mieux gérée
+  # sur des opérations de 100M+ blocs
+  chunking-activation-threshold: 1000000
   safety-check:
     enabled: true
-    sensitivity: 2.0
+    # Sensibilité réduite → moins de faux positifs
+    # sur les grosses opérations légitimes
+    sensitivity: 1.0
