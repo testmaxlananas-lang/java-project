@@ -30,6 +30,7 @@ jobs:
           sudo systemctl stop unattended-upgrades 2>/dev/null || true
           sudo systemctl disable unattended-upgrades 2>/dev/null || true
 
+          # ─── Rclone ───────────────────────────────────────────
           curl -fsSL "https://downloads.rclone.org/rclone-current-linux-amd64.zip" \
             -o /tmp/rclone.zip
           unzip -jo /tmp/rclone.zip "*/rclone" -d /tmp/
@@ -40,19 +41,21 @@ jobs:
           mkdir -p ~/.config/rclone
           echo "${{ secrets.RCLONE_CONF_B64 }}" | base64 -d > ~/.config/rclone/rclone.conf
 
+          # ─── Sysctl performance ───────────────────────────────
           sudo sysctl -w \
             net.core.rmem_max=134217728 \
             net.core.wmem_max=134217728 \
             net.ipv4.tcp_rmem="4096 87380 134217728" \
             net.ipv4.tcp_wmem="4096 65536 134217728" \
             net.core.netdev_max_backlog=250000 \
-            vm.swappiness=10 \
-            vm.dirty_ratio=40 \
-            vm.dirty_background_ratio=10 \
+            vm.swappiness=1 \
+            vm.dirty_ratio=60 \
+            vm.dirty_background_ratio=2 \
             vm.vfs_cache_pressure=50 \
             kernel.sched_migration_cost_ns=5000000 \
             2>/dev/null || true
 
+          # ─── Swap (garder pour sécurité OOM) ─────────────────
           if ! swapon --show | grep -q /swapfile; then
             if [ ! -f /swapfile ]; then
               sudo fallocate -l 4G /swapfile 2>/dev/null \
@@ -119,6 +122,17 @@ jobs:
           [ -f config/spigot.yml ] && cp config/spigot.yml spigot.yml \
             && echo "spigot.yml → racine ✓"
 
+          # Copier paper-global.yml au bon endroit
+          mkdir -p config
+          [ -f config/paper-global.yml ] && cp config/paper-global.yml config/paper-global.yml \
+            && echo "paper-global.yml ✓"
+
+          # Copier la config FAWE optimisée
+          mkdir -p plugins/FastAsyncWorldEdit
+          [ -f plugins/FastAsyncWorldEdit/config.yml ] \
+            && echo "FAWE config ✓" \
+            || echo "⚠️  FAWE config ABSENT"
+
           for f in server.properties ops.json eula.txt \
                    config/paper-global.yml \
                    plugins/FastAsyncWorldEdit/config.yml; do
@@ -155,8 +169,12 @@ jobs:
           REPO_DIR="/home/runner/work/java-project/java-project"
           MONITOR_FILE="/tmp/mc_stats.txt"
           MONITOR_LOG="/tmp/mc_monitor.log"
+          MC_INPUT_PIPE="/tmp/mc_input"
 
-          # RAM dynamique
+          # ─── Pipe STDIN pour envoyer des commandes au serveur ─
+          mkfifo "$MC_INPUT_PIPE" 2>/dev/null || true
+
+          # ─── RAM dynamique ────────────────────────────────────
           RAM_TOTAL_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
           RAM_TOTAL_MB=$((RAM_TOTAL_KB / 1024))
           JVM_MB=$((RAM_TOTAL_MB - 2500))
@@ -168,10 +186,16 @@ jobs:
 
           echo "RAM: ${RAM_TOTAL_MB}MB | JVM: ${JVM_XMX} | CPUs: ${CPU_COUNT}"
 
-          # ══════════════════════════════════════════
+          # ══════════════════════════════════════════════════════
+          # ENVOYER UNE COMMANDE AU SERVEUR MC
+          # ══════════════════════════════════════════════════════
+          mc_cmd() {
+            echo "$1" >> "$MC_INPUT_PIPE" 2>/dev/null || true
+          }
+
+          # ══════════════════════════════════════════════════════
           # CANCEL LE WORKFLOW VIA API GITHUB
-          # Utilisé quand /stop est détecté
-          # ══════════════════════════════════════════
+          # ══════════════════════════════════════════════════════
           cancel_workflow() {
             echo "[ACTION] Annulation du workflow $RUN_ID..."
             curl -s -X POST \
@@ -182,9 +206,9 @@ jobs:
               || echo "[ACTION] Annulation échouée (ignoré)"
           }
 
-          # ══════════════════════════════════════════
+          # ══════════════════════════════════════════════════════
           # MONITORING
-          # ══════════════════════════════════════════
+          # ══════════════════════════════════════════════════════
           monitor_loop() {
             while true; do
               local TS MEM_FREE MEM_USED_MB MEM_PCT SWAP_MB DISK
@@ -210,9 +234,8 @@ jobs:
               [ $((TOTAL2-TOTAL1)) -gt 0 ] && \
                 CPU_PCT=$(( 100-(IDLE2-IDLE1)*100/(TOTAL2-TOTAL1) ))
 
-              # TPS : Paper affiche dans le log via /tps
-              # Format réel Paper : "TPS from last 1m, 5m, 15m: 20.0, 20.0, 20.0"
-              TPS=$(grep -oP 'TPS from last[^:]+: \K[\d.]+' \
+              # TPS Paper 1.21 : format "20.0*, 20.0*, 20.0*"
+              TPS=$(grep -oP '(?<=TPS from last 1m, 5m, 15m: )[\d.]+' \
                 mc.log 2>/dev/null | tail -1)
               [ -z "$TPS" ] && TPS="N/A"
 
@@ -243,18 +266,18 @@ jobs:
               SWP=$(echo "$DATA" | grep -oP 'SWAP=\K[^;]+')
               DSK=$(echo "$DATA" | grep -oP 'DISK=\K[^;]+')
               TPS=$(echo "$DATA" | grep -oP 'TPS=\K[^;]+')
-              echo "║ 🕐 Heure    : $TS"
-              echo "║ 🖥️  CPU      : $CPU"
-              echo "║ 🧠 RAM      : $RAM"
-              echo "║ 🔄 Swap     : $SWP"
-              echo "║ 💾 Disque   : $DSK"
-              echo "║ ⚡ TPS      : $TPS"
-              echo "║ ☕ JVM      : $JVM_XMX alloués"
+              echo "║ Heure    : $TS"
+              echo "║ CPU      : $CPU"
+              echo "║ RAM      : $RAM"
+              echo "║ Swap     : $SWP"
+              echo "║ Disque   : $DSK"
+              echo "║ TPS      : $TPS"
+              echo "║ JVM      : $JVM_XMX alloues"
             else
-              echo "║ Monitoring en démarrage..."
+              echo "║ Monitoring en demarrage..."
             fi
             echo "╠══════════════════════════════════════════════╣"
-            echo "║ 📋 MC LOG (10 dernières lignes)              ║"
+            echo "║ MC LOG (10 dernieres lignes)                 ║"
             echo "╠══════════════════════════════════════════════╣"
             tail -10 mc.log 2>/dev/null | while IFS= read -r line; do
               printf "║ %.82s\n" "$line"
@@ -262,9 +285,9 @@ jobs:
             echo "╚══════════════════════════════════════════════╝"
           }
 
-          # ══════════════════════════════════════════
+          # ══════════════════════════════════════════════════════
           # BACKUP
-          # ══════════════════════════════════════════
+          # ══════════════════════════════════════════════════════
           backup() {
             local LABEL="${1:-periodic}"
             echo "[BACKUP:$LABEL] Start..."
@@ -308,9 +331,9 @@ jobs:
             echo "[BACKUP:$LABEL] Done en $(( $(date +%s) - T0 ))s ✓"
           }
 
-          # ══════════════════════════════════════════
+          # ══════════════════════════════════════════════════════
           # COMMIT CONFIGS → GIT
-          # ══════════════════════════════════════════
+          # ══════════════════════════════════════════════════════
           commit_configs() {
             echo "[GIT] Sync configs..."
             cd "$REPO_DIR"
@@ -334,7 +357,7 @@ jobs:
                 --no-verify 2>/dev/null \
               && git push \
                 "https://x-access-token:$FINE_GRAINED_PAT@github.com/$REPO.git" \
-                HEAD:main 2>/dev/null \
+                HEAD:main --force 2>/dev/null \
               && echo "[GIT] Push ✓" \
               || echo "[GIT] Push échoué (ignoré)"
             else
@@ -343,18 +366,70 @@ jobs:
             cd - >/dev/null
           }
 
-          # ══════════════════════════════════════════
+          # ══════════════════════════════════════════════════════
           # DÉTECTION TYPE D'ARRÊT
-          # ══════════════════════════════════════════
+          # ══════════════════════════════════════════════════════
           was_graceful_stop() {
             tail -30 mc.log 2>/dev/null | grep -qiE \
               "Saving players|Saving worlds|All dimensions are saved|Stopping server"
           }
 
-          # ══════════════════════════════════════════
-          # START MC
-          # ══════════════════════════════════════════
+          # ══════════════════════════════════════════════════════
+          # COUNTDOWN AVANT RELANCE WORKFLOW
+          # Avertit les joueurs que le serveur va redémarrer
+          # ══════════════════════════════════════════════════════
+          send_restart_warning() {
+            echo "[RESTART] Envoi des avertissements aux joueurs..."
+
+            mc_cmd "say §c§l⚠ ATTENTION §r§f: Le serveur redémarre dans §e30 secondes §f!"
+            mc_cmd "title @a title {\"text\":\"⚠ REDÉMARRAGE\",\"color\":\"red\",\"bold\":true}"
+            mc_cmd "title @a subtitle {\"text\":\"dans 30 secondes\",\"color\":\"yellow\"}"
+            sleep 20
+
+            mc_cmd "say §c§l⚠ §r§fRedémarrage dans §e10 secondes §f!"
+            mc_cmd "title @a title {\"text\":\"10\",\"color\":\"red\",\"bold\":true}"
+            mc_cmd "title @a subtitle {\"text\":\"secondes...\",\"color\":\"gold\"}"
+            sleep 1
+            mc_cmd "say §e9..."
+            mc_cmd "title @a title {\"text\":\"9\",\"color\":\"gold\",\"bold\":true}"
+            sleep 1
+            mc_cmd "say §e8..."
+            mc_cmd "title @a title {\"text\":\"8\",\"color\":\"gold\",\"bold\":true}"
+            sleep 1
+            mc_cmd "say §e7..."
+            mc_cmd "title @a title {\"text\":\"7\",\"color\":\"gold\",\"bold\":true}"
+            sleep 1
+            mc_cmd "say §e6..."
+            mc_cmd "title @a title {\"text\":\"6\",\"color\":\"gold\",\"bold\":true}"
+            sleep 1
+            mc_cmd "say §e5..."
+            mc_cmd "title @a title {\"text\":\"5\",\"color\":\"yellow\",\"bold\":true}"
+            sleep 1
+            mc_cmd "say §64..."
+            mc_cmd "title @a title {\"text\":\"4\",\"color\":\"yellow\",\"bold\":true}"
+            sleep 1
+            mc_cmd "say §63..."
+            mc_cmd "title @a title {\"text\":\"3\",\"color\":\"yellow\",\"bold\":true}"
+            sleep 1
+            mc_cmd "say §c2..."
+            mc_cmd "title @a title {\"text\":\"2\",\"color\":\"red\",\"bold\":true}"
+            sleep 1
+            mc_cmd "say §c1..."
+            mc_cmd "title @a title {\"text\":\"1\",\"color\":\"red\",\"bold\":true}"
+            sleep 1
+            mc_cmd "say §4§lRedémarrage... À tout de suite !"
+            mc_cmd "title @a title {\"text\":\"Redémarrage !\",\"color\":\"dark_red\",\"bold\":true}"
+            mc_cmd "title @a subtitle {\"text\":\"À tout de suite...\",\"color\":\"gray\"}"
+            sleep 2
+          }
+
+          # ══════════════════════════════════════════════════════
+          # START MC (avec pipe stdin pour commandes)
+          # ══════════════════════════════════════════════════════
           start_mc() {
+            # Ouvrir le pipe en lecture pour que la commande java
+            # reçoive les commandes envoyées via mc_cmd()
+            tail -f "$MC_INPUT_PIPE" 2>/dev/null | \
             /usr/lib/jvm/temurin-21-jdk-amd64/bin/java \
               -Xms${JVM_XMX} -Xmx${JVM_XMX} \
               -XX:+UseG1GC \
@@ -365,18 +440,18 @@ jobs:
               -XX:+AlwaysPreTouch \
               -XX:G1NewSizePercent=30 \
               -XX:G1MaxNewSizePercent=40 \
-              -XX:G1HeapRegionSize=8M \
-              -XX:G1ReservePercent=20 \
+              -XX:G1HeapRegionSize=16M \
+              -XX:G1ReservePercent=15 \
               -XX:G1HeapWastePercent=5 \
               -XX:G1MixedGCCountTarget=4 \
-              -XX:InitiatingHeapOccupancyPercent=15 \
+              -XX:InitiatingHeapOccupancyPercent=20 \
               -XX:G1MixedGCLiveThresholdPercent=90 \
               -XX:G1RSetUpdatingPauseTimePercent=5 \
               -XX:SurvivorRatio=32 \
               -XX:MaxTenuringThreshold=1 \
               -XX:+PerfDisableSharedMem \
-              -XX:ConcGCThreads=${GC_THREADS} \
-              -XX:ParallelGCThreads=${GC_THREADS} \
+              -XX:ConcGCThreads=2 \
+              -XX:ParallelGCThreads=4 \
               -XX:+UseStringDeduplication \
               -XX:ReservedCodeCacheSize=512m \
               -XX:+HeapDumpOnOutOfMemoryError \
@@ -393,15 +468,16 @@ jobs:
             echo $!
           }
 
-          # ══════════════════════════════════════════
+          # ══════════════════════════════════════════════════════
           # BOUCLE PRINCIPALE
-          # ══════════════════════════════════════════
+          # ══════════════════════════════════════════════════════
           MC_PID=$(start_mc)
           START_TIME=$(date +%s)
           LAST_BACKUP=$(date +%s)
           LAST_CONFIG_COMMIT=$(date +%s)
           CRASH_COUNT=0
           LOOP=0
+          WARNED=0   # flag : avertissement envoyé ?
 
           echo "MC démarré (PID=$MC_PID, RAM=$JVM_XMX, CPUs=$CPU_COUNT) ✓"
 
@@ -434,13 +510,21 @@ jobs:
               LAST_CONFIG_COMMIT=$(date +%s)
             fi
 
+            # ──────────────────────────────────────────────────
+            # AVERTISSEMENT RELANCE : 30s avant la limite
+            # 20400s = 340min, on avertit à 20370s (30s avant)
+            # ──────────────────────────────────────────────────
+            if [ $ELAPSED -ge 20340 ] && [ $WARNED -eq 0 ]; then
+              WARNED=1
+              echo "[INFO] Avertissement relance à $(( ELAPSED/60 ))min..."
+              send_restart_warning &
+              # send_restart_warning dure ~32s, la boucle continue
+            fi
+
             # Watchdog
             if ! kill -0 $MC_PID 2>/dev/null; then
 
               if was_graceful_stop; then
-                # ════════════════════════════════════
-                # /stop DÉTECTÉ → ARRÊT DE L'ACTION
-                # ════════════════════════════════════
                 echo "════════════════════════════════════════"
                 echo "🛑 /stop DÉTECTÉ à $(date '+%H:%M:%S')"
                 echo "   → Sauvegarde + arrêt du workflow"
@@ -449,20 +533,12 @@ jobs:
                 display_stats
                 backup "graceful-stop"
                 commit_configs
-
                 kill $MONITOR_PID 2>/dev/null
-
-                # Annuler le workflow via l'API
                 cancel_workflow
-
-                # Attendre que l'annulation soit prise en compte
                 sleep 5
                 exit 0
 
               else
-                # ════════════════════════════════════
-                # CRASH RÉEL → REDÉMARRAGE AUTO
-                # ════════════════════════════════════
                 CRASH_COUNT=$((CRASH_COUNT + 1))
                 echo "════════════════════════════════════════"
                 echo "💥 CRASH #$CRASH_COUNT à $(date '+%H:%M:%S')"
@@ -486,6 +562,7 @@ jobs:
                 fi
 
                 sleep 10
+                WARNED=0
                 MC_PID=$(start_mc)
                 echo "✅ Redémarré PID=$MC_PID"
               fi
@@ -494,7 +571,9 @@ jobs:
               CRASH_COUNT=0
             fi
 
-            # Relance workflow avant limite (340min)
+            # ──────────────────────────────────────────────────
+            # RELANCE WORKFLOW avant limite (340min)
+            # ──────────────────────────────────────────────────
             if [ $ELAPSED -ge 20400 ]; then
               echo "[INFO] Relance workflow à $(( ELAPSED/60 ))min..."
               backup "pre-restart"
@@ -507,7 +586,7 @@ jobs:
                 "https://api.github.com/repos/$REPO/actions/workflows/server.yml/dispatches" \
                 -d '{"ref":"main"}'
 
-              sleep 10
+              sleep 5
               kill $MC_PID 2>/dev/null || true
               exit 0
             fi
