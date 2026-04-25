@@ -1,0 +1,174 @@
+###############################################################
+##               ______   _____    _____   _______    _____  ##
+##              |  ____| |  __ \  |_   _| |__   __|  / ____| ##
+##   ___   ____ | |__    | |  | |   | |      | |    | (___   ##
+##  / _ \ |_  / |  __|   | |  | |   | |      | |     \___ \  ##
+## |  __/  / /  | |____  | |__| |  _| |_     | |     ____) | ##
+##  \___| /___| |______| |_____/  |_____|    |_|    |_____/  ##
+###############################################################
+## ***
+## For support, or to chat about the plugin, please join us on Discord: https://www.discord.gg/NfT3vyeKu5
+##
+## Patreon: https://www.patreon.com/ezEdits
+## Ko-Fi: https://ko-fi.com/ezedits
+##
+## Created by: eztaK & Zeranny
+## ***
+##
+## Do not edit file version
+file-version: 14
+
+updates: # Check for plugin updates
+  check: true
+  inform-admins: true # Sends a message to server operators when they log in
+files: # Where to store/load ezEdits files. Assumes the ezEdits plugin folder as the starting location
+  directory: # Do not point multiple to the same folder
+    noise: noise
+    palette: palettes
+    selection: selections
+metrics: # Enables anonymous usage metrics via bstats: https://bstats.org/plugin/bukkit/ezEdits/22361
+  enabled: true # Changing this setting requires a server restart
+generic:
+  player:
+    max-block-trace: 512
+palettes:
+  player:
+    max-saved-palettes: 1024
+    max-length: 128
+noise:
+  player:
+    max-saved-presets: 1024
+  parameters:
+    max-octaves: 8
+voronoialize2:
+  args:
+    max-cells: 4096.0
+flowfield: # See also: Texturing Commands > Flow
+  args:
+    max-lines: 4194304
+    max-line-iterations: 65536
+flowline:
+  args:
+    max-length: 1024
+vines:
+  args:
+    max-length: 320
+structure:
+  args:
+    max-total-size: 128.0
+scatter:
+  args:
+    max-total-count: 300
+    max-uniformity-iterations: 30
+array:
+  max-snap-range: 96 # Caps at 320 blocks
+spline:
+  args:
+    max-radius: 50.0
+stainedglassgradient:
+  args:
+    max-length: 64
+    max-quality: 6 # Quality cannot go above 16
+    max-layers: 11 # You cannot see through more than 11 layers of stained glass
+stainedglassimage:
+  args:
+    max-quality: 6 # Quality cannot go above 16
+    max-layers: 11 # You cannot see through more than 11 layers of stained glass
+    max-size: 1920
+smoothblocks:
+  max-blocks: 2097152
+  args:
+    max-radius: 8
+    max-iterations: 24
+smooth:
+  args:
+    max-iterations: 64
+sharpen:
+  args:
+    max-iterations: 64
+inflate:
+  args:
+    max-radius: 64.0
+deflate:
+  args:
+    max-radius: 64.0
+symmetry:
+  args:
+    max-copies: 128
+texture:
+  cells:
+    args:
+      max-cells: 4096.0
+  flow: # See also: Flowfield Based Commands > Flowfield
+    args:
+      max-lines: 4194304
+      max-iterations: 65536
+selections:
+  player:
+    max-saved-selections: 1024
+brushes:
+  stroke:
+    max-points: 128
+visualisations: # Certain tools use BlockDisplay entities to give visual feedback to the user
+  enable-visualisations: true
+  update-interval: 1 # How frequent the entities are updated: 1 means every tick (fastest), 20 means once every second
+masks:
+  near-mask:
+    enabled: true
+    max-range: 16
+  noise-mask:
+    enabled: true
+    defaults: # Prebuilt noise presets as masks
+      voronoiedge:
+        enabled: true
+      ridged:
+        enabled: true
+      smoothcells:
+        enabled: true
+  aim-mask:
+    enabled: true
+  vectorgradient-mask:
+    enabled: true
+  attached-mask:
+    enabled: true
+  fullblock-mask:
+    enabled: true
+  palette-mask:
+    enabled: true
+  light-mask:
+    enabled: true
+  selection-mask:
+    enabled: true
+  hotbar-mask:
+    enabled: true
+  current-mask:
+    enabled: true
+  infested-mask:
+    enabled: true
+  lightsource-mask:
+    enabled: true
+patterns:
+  noise-pattern:
+    enabled: true
+    defaults: # Prebuilt noise presets as patterns
+      voronoiedge:
+        enabled: true
+      ridged:
+        enabled: true
+      smoothcells:
+        enabled: true
+  aim-pattern:
+    enabled: true
+  vectorgradient-pattern:
+    enabled: true
+  selection-pattern:
+    enabled: true
+  palette-pattern:
+    enabled: true
+  hotbar-pattern:
+    enabled: true
+memory:
+  chunking-activation-threshold: 5000000 # Minimum block count before operation chunking occurs
+  safety-check:
+    enabled: true
+    sensitivity: 2.0
