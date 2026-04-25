@@ -50,20 +50,19 @@ jobs:
             echo "Mojang jar pre-cached"
           fi
 
-      - name: Install playit tunnel
+      - name: Tunnel TCP
         run: |
-          curl -SsL https://playit-cloud.github.io/ppa/key.gpg \
-            | gpg --dearmor \
-            | sudo tee /etc/apt/trusted.gpg.d/playit.gpg >/dev/null
-          echo "deb [signed-by=/etc/apt/trusted.gpg.d/playit.gpg] https://playit-cloud.github.io/ppa/v0 . /" \
-            | sudo tee /etc/apt/sources.list.d/playit-cloud.list
-          sudo apt-get update -qq && sudo apt-get install -y playit
-          echo "${{ secrets.PLAYIT_SECRET }}" > ~/.config/playit/secret.toml
-          playit 2>&1 | tee playit.log &
-          sleep 15
-          echo "=== PLAYIT LOG ==="
-          cat playit.log
-          echo "=================="
+          pip install openport --quiet
+          python3 -c "
+          import openport, threading, time
+          s = openport.OpenPort()
+          s.start(local_port=25565)
+          time.sleep(10)
+          print('=== IP :', s.server_url, '===')
+          import signal, os
+          os.kill(os.getpid(), signal.SIGSTOP)
+          " &
+          sleep 20
 
       - name: Start Paper
         run: |
