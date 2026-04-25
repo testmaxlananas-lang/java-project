@@ -1,47 +1,5 @@
-MyAnimation1:
-  change-interval: 80
+pulse:
+  change-interval: 600
   texts:
-    - '&b&m              '
-    - '&3&m              '
-    - '&b&m              '
-    - '&3&m              '
-    - '&b&m              '
-    - '&3&m              '
-    - '&b&m              '
-    - '&3&m              '
-
-Welcome:
-  change-interval: 350
-  texts:
-    - '&7B&f_'
-    - '&7Bi&f_'
-    - '&7Bie&f_'
-    - '&7Bien&f_'
-    - '&b&lBienve&f_'
-    - '&b&lBienvenu&f_'
-    - '&b&lBienvenue&f_'
-    - '&b&lBienvenue&f_'
-    - '&b&lBienvenue&f_'
-    - '&b&lBienvenue&f_'
-    - '&b&lBienvenu&f_'
-    - '&b&lBienven&f_'
-    - '&b&lBienve&f_'
-    - '&b&lBienv&f_'
-    - '&b&lBien&f_'
-    - '&b&lBie&f_'
-    - '&b&lBi&f_'
-    - '&b&lB&f_'
-
-time:
-  change-interval: 5000
-  texts:
-    - '&7Heure &f» &b%time%'
-    - '&7Date &f» &b%date%'
-
-ServerName:
-  change-interval: 400
-  texts:
-    - '&b&lBuild Server'
-    - '&3&lBuild Server'
-    - '&9&lBuild Server'
-    - '&b&lBuild Server'
+    - "<gradient:#00B4DB:#0083B0>⬡ Build Server ⬡</gradient>"
+    - "<gradient:#0083B0:#00B4DB>⬡ Build Server ⬡</gradient>"
