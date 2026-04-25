@@ -24,36 +24,48 @@ jobs:
           persist-credentials: true
           token: ${{ secrets.FINE_GRAINED_PAT }}
 
+      # ═══════════════════════════════════════════════════════════
+      # SNAPSHOT REPO : capture AVANT tout (priorité absolue)
+      # ═══════════════════════════════════════════════════════════
       - name: Snapshot repo
         run: |
           set -euo pipefail
+          # Snapshot complet du repo pour application prioritaire après restore
           mkdir -p /tmp/repo-snapshot
           cp -r . /tmp/repo-snapshot/
+          
+          # Lister les JARs présents à la racine du repo
+          REPO_JARS=$(find /tmp/repo-snapshot -maxdepth 1 -name "*.jar" \
+            ! -name "playit*" ! -name "server.jar" 2>/dev/null | wc -l)
           echo "Snapshot: $(find /tmp/repo-snapshot -type f | wc -l) fichiers"
+          echo "JARs plugins dans repo: ${REPO_JARS}"
 
+      # ═══════════════════════════════════════════════════════════
+      # SETUP SYSTÈME
+      # ═══════════════════════════════════════════════════════════
       - name: Setup systeme
         run: |
           set -euo pipefail
 
-          # Désactiver les services parasites
           sudo systemctl stop unattended-upgrades apt-daily apt-daily-upgrade 2>/dev/null || true
           sudo systemctl disable unattended-upgrades apt-daily apt-daily-upgrade 2>/dev/null || true
           sudo pkill -f unattended-upgrades 2>/dev/null || true
           sudo ln -sf /bin/true /usr/bin/mandb 2>/dev/null || true
 
-          # Installer rclone via binaire direct
-          curl -fsSL "https://downloads.rclone.org/rclone-current-linux-amd64.zip" -o /tmp/rclone.zip
+          # rclone
+          curl -fsSL "https://downloads.rclone.org/rclone-current-linux-amd64.zip" \
+            -o /tmp/rclone.zip
           unzip -jo /tmp/rclone.zip "*/rclone" -d /tmp/
           sudo mv /tmp/rclone /usr/local/bin/rclone
           sudo chmod +x /usr/local/bin/rclone
           rm /tmp/rclone.zip
 
-          # Config rclone
           mkdir -p ~/.config/rclone
-          printf '%s' "${{ secrets.RCLONE_CONF_B64 }}" | base64 -d > ~/.config/rclone/rclone.conf
+          printf '%s' "${{ secrets.RCLONE_CONF_B64 }}" | base64 -d \
+            > ~/.config/rclone/rclone.conf
           chmod 600 ~/.config/rclone/rclone.conf
 
-          # Tuning réseau (BBR + optimisations)
+          # Tuning kernel réseau + VM
           sudo sysctl -w \
             net.core.rmem_max=134217728 \
             net.core.wmem_max=134217728 \
@@ -77,29 +89,29 @@ jobs:
             kernel.pid_max=4194304 \
             2>/dev/null || true
 
-          # Huge pages (mode conservateur)
-          echo madvise | sudo tee /sys/kernel/mm/transparent_hugepage/enabled >/dev/null 2>&1 || true
-          echo defer+madvise | sudo tee /sys/kernel/mm/transparent_hugepage/defrag >/dev/null 2>&1 || true
+          echo madvise | sudo tee \
+            /sys/kernel/mm/transparent_hugepage/enabled >/dev/null 2>&1 || true
+          echo defer+madvise | sudo tee \
+            /sys/kernel/mm/transparent_hugepage/defrag >/dev/null 2>&1 || true
 
-          # CPU performance mode
           for f in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
             [ -f "$f" ] && echo performance | sudo tee "$f" >/dev/null 2>&1 || true
           done
 
-          # I/O scheduler optimisé
           for dev in /sys/block/sda /sys/block/sdb /sys/block/nvme0n1; do
-            [ -f "${dev}/queue/scheduler" ] && echo "none" | sudo tee "${dev}/queue/scheduler" >/dev/null 2>&1 || true
-            [ -f "${dev}/queue/read_ahead_kb" ] && echo "4096" | sudo tee "${dev}/queue/read_ahead_kb" >/dev/null 2>&1 || true
+            [ -f "${dev}/queue/scheduler" ] && \
+              echo "none" | sudo tee "${dev}/queue/scheduler" >/dev/null 2>&1 || true
+            [ -f "${dev}/queue/read_ahead_kb" ] && \
+              echo "4096" | sudo tee "${dev}/queue/read_ahead_kb" >/dev/null 2>&1 || true
           done
 
           ulimit -n 1048576 2>/dev/null || true
 
           # Swap 6G
           if ! swapon --show | grep -q /swapfile 2>/dev/null; then
-            if [ ! -f /swapfile ]; then
+            [ ! -f /swapfile ] && \
               sudo fallocate -l 6G /swapfile 2>/dev/null || \
-                sudo dd if=/dev/zero of=/swapfile bs=1M count=6144 status=none
-            fi
+              sudo dd if=/dev/zero of=/swapfile bs=1M count=6144 status=none
             sudo chmod 600 /swapfile
             sudo mkswap /swapfile >/dev/null 2>&1 || true
             sudo swapon /swapfile 2>/dev/null || true
@@ -109,18 +121,17 @@ jobs:
           # Java Temurin 21
           JAVA_BIN="/usr/lib/jvm/temurin-21-jdk-amd64/bin/java"
           if [ ! -f "$JAVA_BIN" ]; then
-            echo "Installation Temurin 21..."
             wget -qO - https://packages.adoptium.net/artifactory/api/gpg/key/public \
               | sudo gpg --dearmor \
               | sudo tee /etc/apt/trusted.gpg.d/adoptium.gpg >/dev/null
             . /etc/os-release
-            echo "deb https://packages.adoptium.net/artifactory/deb ${VERSION_CODENAME} main" \
+            echo "deb https://packages.adoptium.net/artifactory/deb \
+              ${VERSION_CODENAME} main" \
               | sudo tee /etc/apt/sources.list.d/adoptium.list
             sudo apt-get update -qq
             sudo apt-get install -y -qq temurin-21-jdk
           fi
 
-          # Installer zstd si absent
           command -v zstd >/dev/null 2>&1 || sudo apt-get install -y -qq zstd
 
           RAM_MB=$(awk '/MemTotal/{print int($2/1024)}' /proc/meminfo)
@@ -133,88 +144,60 @@ jobs:
           echo "  Disk : $(df -h . | tail -1 | awk '{print $4}') libre"
           echo "=============================="
 
+      # ═══════════════════════════════════════════════════════════
+      # RESTORE DRIVE : uniquement world + données runtime
+      # Les JARs et configs viennent du REPO (priorité)
+      # ═══════════════════════════════════════════════════════════
       - name: Restore drive
         run: |
           set -uo pipefail
-          echo "=== Restore depuis Google Drive ==="
+          echo "=== Restore Drive (world uniquement) ==="
 
-          # Téléchargement parallèle avec vérification d'intégrité
           safe_dl() {
             local src="$1"
-            local dest="${2:-$src}"
             rclone copy "rclone-mc:mc-backup/${src}" . \
-              --transfers=8 \
-              --multi-thread-streams=8 \
-              --buffer-size=256M \
-              --retries=3 \
-              --low-level-retries=3 \
+              --transfers=8 --multi-thread-streams=8 \
+              --buffer-size=256M --retries=3 --low-level-retries=3 \
               2>/dev/null \
               && echo "  OK: ${src}" \
               || echo "  ABSENT: ${src}"
           }
 
-          safe_dl "world.tar.zst"        &  P1=$!
-          safe_dl "plugins.tar.zst"      &  P2=$!
-          safe_dl "server.jar"           &  P3=$!
-          safe_dl "plugins-config.tar.zst" & P4=$!
-          wait $P1 $P2 $P3 $P4
+          # Télécharger en parallèle
+          safe_dl "world.tar.zst"          & P1=$!
+          safe_dl "server.jar"             & P2=$!
+          # plugins.tar.zst et plugins-config.tar.zst : NON téléchargés
+          # Le repo GitHub a la priorité sur les JARs et configs
+          wait $P1 $P2
           echo "Telechargements termines"
 
-          # Extraction parallèle avec vérification
-          PIDS=()
-
+          # Extraire le world
           if [ -f world.tar.zst ]; then
             SIZE=$(stat -c%s world.tar.zst 2>/dev/null || echo 0)
             if [ "$SIZE" -gt 1000 ]; then
               echo "Extraction world ($(du -sh world.tar.zst | cut -f1))..."
-              zstd -d -T0 --stdout world.tar.zst | tar -x --ignore-zeros &
-              PIDS+=($!)
+              zstd -d -T0 --stdout world.tar.zst | tar -x --ignore-zeros
+              echo "World extrait"
             else
               echo "World archive corrompue, ignoree"
-              rm -f world.tar.zst
             fi
+            rm -f world.tar.zst
           else
             echo "World: demarrage vierge"
           fi
 
-          if [ -f plugins.tar.zst ]; then
-            SIZE=$(stat -c%s plugins.tar.zst 2>/dev/null || echo 0)
-            if [ "$SIZE" -gt 1000 ]; then
-              echo "Extraction plugins JARs ($(du -sh plugins.tar.zst | cut -f1))..."
-              zstd -d -T0 --stdout plugins.tar.zst | tar -x --ignore-zeros &
-              PIDS+=($!)
-            else
-              rm -f plugins.tar.zst
-            fi
-          fi
-
-          if [ -f plugins-config.tar.zst ]; then
-            SIZE=$(stat -c%s plugins-config.tar.zst 2>/dev/null || echo 0)
-            if [ "$SIZE" -gt 100 ]; then
-              echo "Extraction configs plugins ($(du -sh plugins-config.tar.zst | cut -f1))..."
-              zstd -d -T0 --stdout plugins-config.tar.zst | tar -x --ignore-zeros &
-              PIDS+=($!)
-            else
-              rm -f plugins-config.tar.zst
-            fi
-          fi
-
-          [ "${#PIDS[@]}" -gt 0 ] && wait "${PIDS[@]}" || true
-
-          # Supprimer les archives temporaires pour libérer le disque local
-          rm -f world.tar.zst plugins.tar.zst plugins-config.tar.zst
-
           echo "World dossiers : $(ls -d world* 2>/dev/null | tr '\n' ' ' || echo 'aucun')"
-          echo "Plugins JARs   : $(find plugins -maxdepth 1 -name '*.jar' 2>/dev/null | wc -l)"
-          echo "Restore termine"
 
+      # ═══════════════════════════════════════════════════════════
+      # PAPER JAR
+      # ═══════════════════════════════════════════════════════════
       - name: Paper JAR
         run: |
           set -uo pipefail
           if [ -f server.jar ]; then
             SIZE=$(stat -c%s server.jar 2>/dev/null || echo "0")
             if [ "$SIZE" -gt 10000000 ]; then
-              echo "server.jar OK depuis cache ($(( SIZE / 1048576 ))MB)"
+              echo "server.jar OK ($(( SIZE / 1048576 ))MB)"
             else
               rm -f server.jar
               echo "JAR corrompu, re-telechargement..."
@@ -226,7 +209,6 @@ jobs:
             wget -q -O server.jar \
               "https://api.papermc.io/v2/projects/paper/versions/1.21.10/builds/129/downloads/paper-1.21.10-129.jar"
             echo "Paper telecharge ($(du -sh server.jar | cut -f1))"
-            # Upload en arrière-plan sans bloquer
             rclone copy server.jar rclone-mc:mc-backup/ \
               --transfers=4 --retries=3 2>/dev/null &
             disown
@@ -234,38 +216,83 @@ jobs:
 
           echo "eula=true" > eula.txt
 
-      - name: Appliquer configs
+      # ═══════════════════════════════════════════════════════════
+      # APPLIQUER REPO : priorité ABSOLUE sur tout
+      # JARs racine → plugins/
+      # Configs repo → destinations finales
+      # ═══════════════════════════════════════════════════════════
+      - name: Appliquer repo (priorite absolue)
         run: |
           set -uo pipefail
-          echo "=== Application configs repo ==="
+          echo "=== Application repo (priorite absolue) ==="
 
-          find /tmp/repo-snapshot -type f | while IFS= read -r src; do
+          # 1. Copier les JARs plugins de la racine repo vers plugins/
+          mkdir -p plugins
+          JARS_COPIED=0
+          while IFS= read -r jar; do
+            [ -z "$jar" ] && continue
+            filename="$(basename "$jar")"
+            # Exclure server.jar et playit
+            case "$filename" in
+              server.jar|playit*) continue ;;
+            esac
+            cp -f "$jar" "plugins/${filename}"
+            JARS_COPIED=$(( JARS_COPIED + 1 ))
+            echo "  JAR: ${filename} → plugins/"
+          done < <(find /tmp/repo-snapshot -maxdepth 1 -name "*.jar" \
+            ! -name "server.jar" ! -name "playit*" 2>/dev/null)
+          echo "  Total JARs copies: ${JARS_COPIED}"
+
+          # 2. Copier les configs du repo (plugins/*/*, config/*, etc.)
+          #    avec priorité absolue sur ce qui vient du Drive
+          CONFIGS_COPIED=0
+          while IFS= read -r src; do
             rel="${src#/tmp/repo-snapshot/}"
+            # Ignorer les fichiers système/binaires
             case "$rel" in
-              .git/*|*.tar.zst|*.tar.gz|*.jar|"") continue ;;
+              ""| .git/*|*.tar.zst|*.tar.gz) continue ;;
+            esac
+            # Ignorer les JARs à la racine (déjà traités)
+            case "$rel" in
+              *.jar) 
+                # Sauf ceux dans sous-dossiers (plugins internes)
+                [ "$(dirname "$rel")" = "." ] && continue
+                ;;
             esac
             dst_dir="$(dirname "$rel")"
             if [ -n "$dst_dir" ] && [ "$dst_dir" != "." ]; then
               mkdir -p "$dst_dir"
             fi
-            cp -f "$src" "$rel" 2>/dev/null || true
-          done
+            cp -f "$src" "$rel" 2>/dev/null && \
+              CONFIGS_COPIED=$(( CONFIGS_COPIED + 1 )) || true
+          done < <(find /tmp/repo-snapshot -type f)
 
+          echo "  Total fichiers appliques: ${CONFIGS_COPIED}"
+
+          # 3. Forcer eula
           echo "eula=true" > eula.txt
-          echo "Configs appliquees"
 
+          # 4. Rapport plugins finaux
+          echo "  Plugins JARs: $(find plugins -maxdepth 1 -name '*.jar' | wc -l)"
+          echo "=== Repo applique ==="
+
+      # ═══════════════════════════════════════════════════════════
+      # PLAYIT
+      # ═══════════════════════════════════════════════════════════
       - name: Playit
         run: |
           chmod +x ./playit-linux-amd64
           printf '%s' '${{ secrets.PLAYIT_SECRET }}' > playit.toml
 
-          RUST_LOG=warn ./playit-linux-amd64 --secret_path playit.toml > playit.log 2>&1 &
+          RUST_LOG=warn ./playit-linux-amd64 --secret_path playit.toml \
+            > playit.log 2>&1 &
           PLAYIT_PID=$!
 
           echo "Attente connexion Playit (max 30s)..."
           for i in $(seq 1 30); do
             sleep 1
-            if grep -qiE "connected|tunnel|ready|online|agent" playit.log 2>/dev/null; then
+            if grep -qiE "connected|tunnel|ready|online|agent" \
+              playit.log 2>/dev/null; then
               echo "Playit connecte en ${i}s"
               break
             fi
@@ -275,9 +302,11 @@ jobs:
               break
             fi
           done
-
           grep -iE "tunnel|address|connect" playit.log 2>/dev/null | head -5 || true
 
+      # ═══════════════════════════════════════════════════════════
+      # MINECRAFT : serveur + monitoring + backup + /stop propre
+      # ═══════════════════════════════════════════════════════════
       - name: Minecraft
         env:
           FINE_GRAINED_PAT: ${{ secrets.FINE_GRAINED_PAT }}
@@ -288,16 +317,16 @@ jobs:
           MC_LOG="mc.log"
           MC_PIPE="/tmp/mc_input"
           STATS_FILE="/tmp/mc_stats.txt"
-          # Fichier de hash du world pour détecter les vrais changements
           WORLD_HASH_FILE="/tmp/world_hash.txt"
+          # Fichier sentinelle : le step Backup final le lit
+          STOPPED_CLEANLY="/tmp/mc_stopped_cleanly"
 
-          rm -f "$MC_PIPE"
+          rm -f "$MC_PIPE" "$STOPPED_CLEANLY"
           mkfifo "$MC_PIPE"
           > "$MC_LOG"
 
           RAM_KB=$(awk '/MemTotal/{print $2}' /proc/meminfo)
           RAM_MB=$(( RAM_KB / 1024 ))
-          # Réserver 1.5GB pour l'OS (au lieu de 2GB) pour maximiser la JVM
           JVM_MB=$(( RAM_MB - 1536 ))
           [ "$JVM_MB" -gt 13312 ] && JVM_MB=13312
           [ "$JVM_MB" -lt 4096  ] && JVM_MB=4096
@@ -306,6 +335,7 @@ jobs:
 
           echo "RAM: ${RAM_MB}MB | JVM: ${JVM} | CPUs: ${CPUS}"
 
+          # ── Helpers ───────────────────────────────────────────
           mc_cmd() {
             printf '%s\n' "$*" > "$MC_PIPE" 2>/dev/null || true
           }
@@ -315,7 +345,9 @@ jobs:
               -H "Authorization: token ${FINE_GRAINED_PAT}" \
               -H "Accept: application/vnd.github.v3+json" \
               "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/cancel" \
-              >/dev/null && echo "[GH] Annule" || echo "[GH] Echec annulation"
+              >/dev/null \
+              && echo "[GH] Workflow annule" \
+              || echo "[GH] Echec annulation"
           }
 
           gh_dispatch() {
@@ -324,67 +356,64 @@ jobs:
               -H "Accept: application/vnd.github.v3+json" \
               "https://api.github.com/repos/${REPO}/actions/workflows/server.yml/dispatches" \
               -d '{"ref":"main"}' \
-              >/dev/null && echo "[GH] Nouveau workflow lance" || echo "[GH] Echec dispatch"
+              >/dev/null \
+              && echo "[GH] Nouveau workflow lance" \
+              || echo "[GH] Echec dispatch"
           }
 
-          # Collecter les dossiers world présents
           get_world_dirs() {
             local DIRS=""
             for d in world world_nether world_the_end; do
               [ -d "$d" ] && DIRS="$DIRS $d"
             done
             for d in $(ls -d world_* 2>/dev/null || true); do
-              case "$DIRS" in *"$d"*) ;; *) [ -d "$d" ] && DIRS="$DIRS $d" ;; esac
+              case "$DIRS" in
+                *"$d"*) ;;
+                *) [ -d "$d" ] && DIRS="$DIRS $d" ;;
+              esac
             done
             echo "$DIRS"
           }
 
-          # Hash rapide du world (taille totale + mtime fichiers récents)
+          # Hash = nombre de fichiers .mca modifiés depuis le dernier check
           world_hash() {
             local DIRS="$1"
             if [ -n "$DIRS" ]; then
-              find $DIRS -name "*.mca" -newer /tmp/mc_stats.txt 2>/dev/null \
-                | wc -l
+              # shellcheck disable=SC2086
+              find $DIRS -name "*.mca" -newer "$WORLD_HASH_FILE" \
+                2>/dev/null | wc -l
             else
               echo "0"
             fi
           }
 
+          # ── Monitor ───────────────────────────────────────────
           monitor_loop() {
             while true; do
-              LINE1=$(grep '^cpu ' /proc/stat 2>/dev/null || echo "cpu 0 0 0 0 0 0 0")
+              L1=$(grep '^cpu ' /proc/stat 2>/dev/null || echo "cpu 0 0 0 0 0 0 0")
               sleep 1
-              LINE2=$(grep '^cpu ' /proc/stat 2>/dev/null || echo "cpu 0 0 0 0 0 0 0")
-
-              CPU_PCT=$(awk -v l1="$LINE1" -v l2="$LINE2" 'BEGIN {
-                n = split(l1, a, " ")
-                split(l2, b, " ")
-                idle1 = a[5]+0; idle2 = b[5]+0
-                tot1=0; tot2=0
-                for(i=2;i<=n;i++){tot1+=a[i]+0; tot2+=b[i]+0}
-                dt=tot2-tot1; di=idle2-idle1
-                printf "%d", (dt>0) ? 100-int(di*100/dt) : 0
+              L2=$(grep '^cpu ' /proc/stat 2>/dev/null || echo "cpu 0 0 0 0 0 0 0")
+              CPU_PCT=$(awk -v l1="$L1" -v l2="$L2" 'BEGIN {
+                n=split(l1,a," "); split(l2,b," ")
+                id1=a[5]+0; id2=b[5]+0; t1=0; t2=0
+                for(i=2;i<=n;i++){t1+=a[i]+0; t2+=b[i]+0}
+                dt=t2-t1; di=id2-id1
+                printf "%d",(dt>0)?100-int(di*100/dt):0
               }')
-
               MEM_FREE=$(awk '/MemAvailable/{print $2+0}' /proc/meminfo)
               MEM_USED=$(( (RAM_KB - MEM_FREE) / 1024 ))
               MEM_PCT=$(( (RAM_KB - MEM_FREE) * 100 / RAM_KB ))
               SWAP=$(free -m 2>/dev/null | awk '/Swap/{print $3+0}')
               DISK=$(df -h . 2>/dev/null | awk 'NR==2{print $5}')
-
-              TPS=$(grep -oP '(?<=TPS from last 1m, 5m, 15m: )[\d.]+' "$MC_LOG" 2>/dev/null | tail -1 || true)
+              TPS=$(grep -oP '(?<=TPS from last 1m, 5m, 15m: )[\d.]+' \
+                "$MC_LOG" 2>/dev/null | tail -1 || true)
               [ -z "$TPS" ] && TPS="N/A"
-
               IN=$(grep -c "logged in with entity id" "$MC_LOG" 2>/dev/null || echo 0)
               OUT=$(grep -c "lost connection" "$MC_LOG" 2>/dev/null || echo 0)
-              ONL=$(( IN - OUT ))
-              [ "$ONL" -lt 0 ] && ONL=0
-
-              TS=$(date '+%H:%M:%S')
+              ONL=$(( IN - OUT )); [ "$ONL" -lt 0 ] && ONL=0
               printf 'TS=%s;CPU=%s%%;RAM=%sMB/%sMB(%s%%);SWAP=%sMB;DISK=%s;TPS=%s;ONL=%s\n' \
-                "$TS" "$CPU_PCT" "$MEM_USED" "$RAM_MB" "$MEM_PCT" \
-                "$SWAP" "$DISK" "$TPS" "$ONL" > "$STATS_FILE"
-
+                "$(date '+%H:%M:%S')" "$CPU_PCT" "$MEM_USED" "$RAM_MB" \
+                "$MEM_PCT" "$SWAP" "$DISK" "$TPS" "$ONL" > "$STATS_FILE"
               sleep 9
             done
           }
@@ -414,144 +443,93 @@ jobs:
             echo "=============================="
           }
 
-          # ================================================================
-          # BACKUP OPTIMISÉ : compression maximale + déduplication
-          # ================================================================
+          # ── Backup (world uniquement vers Drive) ──────────────
+          # Règle : JARs et configs viennent du repo → pas backupés sur Drive
+          # Seul le world est sauvegardé (données de jeu)
           backup() {
             local LABEL="${1:-periodic}"
-            local FORCE="${2:-0}"   # 1 = forcer même sans changements
+            local FORCE="${2:-0}"
             local T0 PIDS
             T0=$(date +%s)
             PIDS=()
             echo "[BACKUP:${LABEL}] Debut $(date '+%H:%M:%S')"
 
             mc_cmd "save-all flush" 2>/dev/null || true
-            sleep 2
+            sleep 3
 
             WORLD_DIRS=$(get_world_dirs)
 
-            # --- WORLD : compression zstd niveau 19 (max) + filtre agressif ---
             if [ -n "$WORLD_DIRS" ]; then
-              # Vérifier s'il y a eu des changements réels
-              CHANGED_CHUNKS=$(world_hash "$WORLD_DIRS")
-              PREV_HASH=$(cat "$WORLD_HASH_FILE" 2>/dev/null || echo "-1")
+              # Initialiser le fichier de référence si absent
+              [ -f "$WORLD_HASH_FILE" ] || touch "$WORLD_HASH_FILE"
 
-              if [ "$FORCE" = "1" ] || [ "$CHANGED_CHUNKS" != "$PREV_HASH" ]; then
-                echo "  World: $CHANGED_CHUNKS chunks modifies, compression..."
+              CHANGED=$(world_hash "$WORLD_DIRS")
 
+              if [ "$FORCE" = "1" ] || [ "$CHANGED" -gt 0 ]; then
+                echo "  World: ${CHANGED} chunks modifies, compression..."
+
+                # shellcheck disable=SC2086
                 tar -cf - \
                   --exclude='*/session.lock' \
-                  --exclude='*/poi' \
                   --exclude='*/poi/*' \
-                  --exclude='*/entities' \
-                  --exclude='*/advancements' \
+                  --exclude='*/entities/*' \
+                  --exclude='*/advancements/*' \
                   --exclude='level.dat_old' \
                   --exclude='*.lck' \
                   $WORLD_DIRS 2>/dev/null \
-                | zstd -19 -T0 \
-                    --long=27 \
-                    --zstd=windowLog=27 \
-                    -fo world.tar.zst
+                | zstd -19 -T0 --long=27 -fo world.tar.zst
 
-                WORLD_SIZE=$(du -sh world.tar.zst 2>/dev/null | cut -f1)
-                echo "  World: ${WORLD_SIZE} (niveau 19)"
+                echo "  World: $(du -sh world.tar.zst | cut -f1) (zstd-19)"
 
                 rclone copy world.tar.zst rclone-mc:mc-backup/ \
-                  --transfers=8 \
-                  --multi-thread-streams=8 \
-                  --buffer-size=256M \
-                  --retries=3 \
-                  --checksum \
+                  --transfers=8 --multi-thread-streams=8 \
+                  --buffer-size=256M --retries=3 --checksum \
                   2>/dev/null &
                 PIDS+=($!)
 
-                # Mettre à jour le hash
-                echo "$CHANGED_CHUNKS" > "$WORLD_HASH_FILE"
-
-                # Nettoyer l'archive locale immédiatement après upload lancé
+                # Mettre à jour la référence temporelle
+                touch "$WORLD_HASH_FILE"
               else
-                echo "  World: aucun changement, skip"
-              fi
-            fi
-
-            # --- PLUGINS JARs : seulement si modifiés ---
-            if [ -d plugins ]; then
-              JAR_COUNT=$(find plugins -maxdepth 1 -name "*.jar" | wc -l)
-              if [ "$JAR_COUNT" -gt 0 ]; then
-                CHANGED=1
-                if [ -f /tmp/plugins_last_backup ]; then
-                  CHANGED=$(find plugins -maxdepth 1 -name "*.jar" \
-                    -newer /tmp/plugins_last_backup 2>/dev/null | wc -l)
-                fi
-
-                if [ "$CHANGED" -gt 0 ] || [ "$FORCE" = "1" ]; then
-                  find plugins -maxdepth 1 -name "*.jar" -print0 \
-                    | tar --null -cf - -T - 2>/dev/null \
-                    | zstd -19 -T0 --long=27 -fo plugins.tar.zst
-
-                  echo "  Plugins: $(du -sh plugins.tar.zst 2>/dev/null | cut -f1)"
-                  touch /tmp/plugins_last_backup
-
-                  rclone copy plugins.tar.zst rclone-mc:mc-backup/ \
-                    --transfers=4 \
-                    --retries=3 \
-                    --checksum \
-                    2>/dev/null &
-                  PIDS+=($!)
-                else
-                  echo "  Plugins: inchanges, skip"
-                fi
-              fi
-
-              # --- CONFIGS PLUGINS : compression max + dédup ---
-              find plugins -mindepth 2 -type f \
-                \( -name "*.yml" -o -name "*.yaml" -o -name "*.json" \
-                   -o -name "*.conf" -o -name "*.properties" -o -name "*.toml" \) \
-                ! -name "plugin.yml" ! -name "plugin.yaml" \
-                -print0 2>/dev/null \
-              | tar --null -cf - -T - 2>/dev/null \
-              | zstd -19 -T0 -fo plugins-config.tar.zst 2>/dev/null || true
-
-              if [ -f plugins-config.tar.zst ]; then
-                SZ=$(stat -c%s plugins-config.tar.zst 2>/dev/null || echo 0)
-                if [ "$SZ" -gt 100 ]; then
-                  rclone copy plugins-config.tar.zst rclone-mc:mc-backup/ \
-                    --transfers=4 \
-                    --retries=3 \
-                    --checksum \
-                    2>/dev/null &
-                  PIDS+=($!)
-                  echo "  Configs: $(du -sh plugins-config.tar.zst 2>/dev/null | cut -f1)"
-                fi
+                echo "  World: aucun chunk modifie, skip"
               fi
             fi
 
             [ "${#PIDS[@]}" -gt 0 ] && wait "${PIDS[@]}" || true
-
-            # Nettoyer les archives locales pour libérer l'espace disque GitHub
-            rm -f world.tar.zst plugins.tar.zst plugins-config.tar.zst
-
+            rm -f world.tar.zst
             echo "[BACKUP:${LABEL}] Termine en $(( $(date +%s) - T0 ))s"
           }
 
+          # ── Git sync (configs in-game → repo) ─────────────────
+          # Synchro uniquement des fichiers modifiés par les plugins en runtime
+          # (bases de données, états, etc.) — PAS les configs du repo
           git_sync() {
-            echo "[GIT] Sync configs..."
+            echo "[GIT] Sync runtime data..."
             git config user.name  "MC Server Bot"
             git config user.email "bot@mc-server.local"
 
-            find plugins -mindepth 2 -type f \
-              \( -name "*.yml" -o -name "*.yaml" -o -name "*.json" \
-                 -o -name "*.conf" -o -name "*.properties" \) \
-              ! -name "plugin.yml" ! -name "plugin.yaml" \
-              2>/dev/null | while IFS= read -r f; do
-                git add "$f" 2>/dev/null || true
-              done
+            # Synchro : uniquement les fichiers de données runtime
+            # (ce que les plugins écrivent pendant le jeu)
+            for dir in plugins/Essentials plugins/spark plugins/bStats \
+                       plugins/CustomNPCs plugins/HeadDatabase \
+                       plugins/Multiverse-Core plugins/TAB \
+                       plugins/Chunky plugins/WorldManager; do
+              if [ -d "$dir" ]; then
+                find "$dir" -type f \
+                  \( -name "userdata" -o -name "*.db" -o -name "*.csv" \
+                     -o -name "*.json" \) \
+                  2>/dev/null | while IFS= read -r f; do
+                    git add "$f" 2>/dev/null || true
+                  done
+              fi
+            done
 
-            git add config/ server.properties ops.json eula.txt 2>/dev/null || true
+            # ops.json, whitelist, server.properties
+            git add ops.json whitelist.json banned-players.json \
+              banned-ips.json server.properties 2>/dev/null || true
 
             if ! git diff --cached --quiet 2>/dev/null; then
               STAMP=$(date '+%Y-%m-%d %H:%M:%S')
-              git commit -m "sync ${STAMP}" --no-verify 2>/dev/null \
+              git commit -m "runtime-sync ${STAMP}" --no-verify 2>/dev/null \
                 && git push \
                   "https://x-access-token:${FINE_GRAINED_PAT}@github.com/${REPO}.git" \
                   HEAD:main --force 2>/dev/null \
@@ -563,23 +541,24 @@ jobs:
           }
 
           was_graceful() {
-            tail -50 "$MC_LOG" 2>/dev/null | grep -qiE \
-              "All dimensions are saved|Stopping server|Saving players"
+            tail -80 "$MC_LOG" 2>/dev/null | grep -qiE \
+              "All dimensions are saved|Stopping server|Saving players|ThreadedAnvilChunkStorage: All dimensions are saved"
           }
 
           warn_restart() {
             echo "[RESTART] Avertissement joueurs..."
-            mc_cmd "say Redemarrage dans 30 secondes !"
-            mc_cmd "title @a times 10 60 20"
+            mc_cmd "say §c[Serveur] Redemarrage dans 60 secondes !"
+            sleep 30
+            mc_cmd "say §c[Serveur] Redemarrage dans 30 secondes !"
             sleep 20
-            mc_cmd "say Redemarrage dans 10 secondes !"
+            mc_cmd "say §c[Serveur] Redemarrage dans 10 secondes !"
             sleep 1
             for N in 9 8 7 6 5 4 3 2 1; do
-              mc_cmd "say ${N}..."
+              mc_cmd "say §c[Serveur] ${N}..."
               sleep 1
             done
-            mc_cmd "say Redemarrage en cours !"
-            sleep 3
+            mc_cmd "say §c[Serveur] Redemarrage en cours !"
+            sleep 2
           }
 
           start_mc() {
@@ -624,6 +603,7 @@ jobs:
             echo $!
           }
 
+          # ── Démarrage ─────────────────────────────────────────
           MC_PID=$(start_mc)
           T_START=$(date +%s)
           T_BACKUP=$(date +%s)
@@ -632,11 +612,15 @@ jobs:
           LOOP=0
           WARNED=0
 
-          echo "MC demarre PID=${MC_PID} RAM=${JVM} CPUs=${CPUS}"
+          # Initialiser la référence world
+          touch "$WORLD_HASH_FILE"
+
+          echo "MC demarre PID=${MC_PID} | RAM=${JVM} | CPUs=${CPUS}"
 
           monitor_loop & MONITOR_PID=$!
           live_logs    & LIVE_PID=$!
 
+          # ── Boucle principale ─────────────────────────────────
           while true; do
             sleep 20
             LOOP=$(( LOOP + 1 ))
@@ -644,9 +628,9 @@ jobs:
             ELAPSED=$(( NOW - T_START ))
             ELAPSED_MIN=$(( ELAPSED / 60 ))
 
-            [ $(( LOOP % 6 )) -eq 0 ] && show_stats
+            [ $(( LOOP % 9 )) -eq 0 ] && show_stats
 
-            # Backup toutes les 5 minutes
+            # Backup world toutes les 5 minutes
             if [ $(( NOW - T_BACKUP )) -ge 300 ]; then
               backup "periodic" "0"
               T_BACKUP=$(date +%s)
@@ -658,38 +642,61 @@ jobs:
               T_GIT=$(date +%s)
             fi
 
-            if [ "$ELAPSED" -ge 20365 ] && [ "$WARNED" -eq 0 ]; then
+            # Avertissement restart à ~5h38
+            if [ "$ELAPSED" -ge 20220 ] && [ "$WARNED" -eq 0 ]; then
               WARNED=1
               echo "[INFO] Avertissement restart (${ELAPSED_MIN}min)"
               warn_restart &
             fi
 
+            # ── MC mort ? ────────────────────────────────────────
             if ! kill -0 "$MC_PID" 2>/dev/null; then
+
               if was_graceful; then
+                # ═══ /stop PROPRE ════════════════════════════════
                 echo "=== /stop propre $(date '+%H:%M:%S') ==="
                 show_stats
+
+                echo "[STOP] Backup final du world..."
                 backup "graceful-stop" "1"
+
+                echo "[STOP] Git sync final..."
                 git_sync
+
+                echo "[STOP] Nettoyage..."
                 kill "$MONITOR_PID" "$LIVE_PID" 2>/dev/null || true
+
+                # Marquer comme arrêt propre pour le step Backup final
+                echo "GRACEFUL" > "$STOPPED_CLEANLY"
+
+                echo "[STOP] Annulation workflow dans 10s..."
+                sleep 10
+                # Le workflow va se terminer via exit 0
+                # Le step "Backup final" verra STOPPED_CLEANLY et skippera
                 gh_cancel
-                sleep 5
+                sleep 3
                 exit 0
+                # ═════════════════════════════════════════════════
+
               else
+                # ═══ CRASH ════════════════════════════════════════
                 CRASHES=$(( CRASHES + 1 ))
                 echo "=== CRASH #${CRASHES} $(date '+%H:%M:%S') ==="
                 show_stats
-                tail -30 "$MC_LOG" 2>/dev/null || true
+                tail -40 "$MC_LOG" 2>/dev/null || true
 
                 if grep -qiE "OutOfMemoryError" "$MC_LOG" 2>/dev/null; then
                   echo "CAUSE: OOM"
                 elif grep -qiE "StackOverflowError" "$MC_LOG" 2>/dev/null; then
                   echo "CAUSE: StackOverflow"
+                elif grep -qiE "Unable to access jarfile" "$MC_LOG" 2>/dev/null; then
+                  echo "CAUSE: JAR manquant"
                 else
                   echo "CAUSE: Crash inattendu"
                 fi
 
                 if [ "$CRASHES" -ge 5 ]; then
-                  echo "[FATAL] 5 crashs consecutifs"
+                  echo "[FATAL] 5 crashs consecutifs - abandon"
                   backup "crash-fatal" "1"
                   git_sync
                   kill "$MONITOR_PID" "$LIVE_PID" 2>/dev/null || true
@@ -704,30 +711,57 @@ jobs:
                 MC_PID=$(start_mc)
                 echo "Redemarre PID=${MC_PID}"
               fi
+
             else
               CRASHES=0
             fi
 
+            # ── Limite temps ~5h40 → relance workflow ────────────
             if [ "$ELAPSED" -ge 20400 ]; then
-              echo "[INFO] Relance workflow (${ELAPSED_MIN}min)"
+              echo "[INFO] Limite temps atteinte (${ELAPSED_MIN}min) - relance"
               backup "pre-restart" "1"
               git_sync
               kill "$MONITOR_PID" "$LIVE_PID" 2>/dev/null || true
+
+              # Lancer le prochain workflow AVANT d'arrêter ce serveur
               gh_dispatch
-              sleep 15
+              sleep 5
+
+              # Arrêt propre du serveur
+              mc_cmd "say §c[Serveur] Redemarrage automatique en cours..."
               mc_cmd "stop"
-              sleep 15
+              echo "[INFO] Attente arret serveur..."
+
+              # Attendre max 60s que MC s'arrête proprement
+              for i in $(seq 1 60); do
+                sleep 1
+                kill -0 "$MC_PID" 2>/dev/null || break
+              done
               kill "$MC_PID" 2>/dev/null || true
+
+              echo "[INFO] Workflow termine - prochain deja lance"
               exit 0
             fi
           done
 
+      # ═══════════════════════════════════════════════════════════
+      # BACKUP FINAL : uniquement si MC n'a PAS été arrêté proprement
+      # (cas : timeout GitHub, kill externe, erreur step)
+      # ═══════════════════════════════════════════════════════════
       - name: Backup final
         if: always()
         run: |
           set -uo pipefail
-          echo "=== BACKUP FINAL $(date '+%H:%M:%S') ==="
-          PIDS=()
+
+          # Si le serveur s'est arrêté proprement via /stop,
+          # le backup a déjà été fait → skip
+          if [ -f /tmp/mc_stopped_cleanly ]; then
+            echo "=== Arret propre detecte - backup deja effectue, skip ==="
+            rclone size rclone-mc:mc-backup/ 2>/dev/null || true
+            exit 0
+          fi
+
+          echo "=== BACKUP FINAL URGENCE $(date '+%H:%M:%S') ==="
 
           get_world_dirs() {
             local DIRS=""
@@ -741,71 +775,31 @@ jobs:
           }
 
           WORLD_DIRS=$(get_world_dirs)
+          PIDS=()
 
           if [ -n "${WORLD_DIRS}" ]; then
-            echo "Compression world niveau 19..."
+            echo "Compression world urgence (niveau 19)..."
+            # shellcheck disable=SC2086
             tar -cf - \
               --exclude='*/session.lock' \
-              --exclude='*/poi' \
               --exclude='*/poi/*' \
-              --exclude='*/entities' \
+              --exclude='*/entities/*' \
+              --exclude='*/advancements/*' \
               --exclude='level.dat_old' \
               --exclude='*.lck' \
               $WORLD_DIRS 2>/dev/null \
             | zstd -19 -T0 --long=27 -fo world.tar.zst
-
             echo "World: $(du -sh world.tar.zst 2>/dev/null | cut -f1)"
-
             rclone copy world.tar.zst rclone-mc:mc-backup/ \
-              --transfers=8 \
-              --multi-thread-streams=8 \
-              --buffer-size=256M \
-              --retries=3 \
-              --checksum \
+              --transfers=8 --multi-thread-streams=8 \
+              --buffer-size=256M --retries=3 --checksum \
               2>/dev/null &
             PIDS+=($!)
           fi
 
-          if [ -d plugins ]; then
-            JAR_N=$(find plugins -maxdepth 1 -name "*.jar" | wc -l)
-            if [ "$JAR_N" -gt 0 ]; then
-              find plugins -maxdepth 1 -name "*.jar" -print0 \
-                | tar --null -cf - -T - 2>/dev/null \
-                | zstd -19 -T0 --long=27 -fo plugins.tar.zst
-              echo "Plugins: $(du -sh plugins.tar.zst 2>/dev/null | cut -f1)"
-              rclone copy plugins.tar.zst rclone-mc:mc-backup/ \
-                --transfers=4 \
-                --retries=3 \
-                --checksum \
-                2>/dev/null &
-              PIDS+=($!)
-            fi
-
-            find plugins -mindepth 2 -type f \
-              \( -name "*.yml" -o -name "*.yaml" -o -name "*.json" \
-                 -o -name "*.conf" -o -name "*.properties" -o -name "*.toml" \) \
-              ! -name "plugin.yml" ! -name "plugin.yaml" \
-              -print0 2>/dev/null \
-            | tar --null -cf - -T - 2>/dev/null \
-            | zstd -19 -T0 -fo plugins-config.tar.zst 2>/dev/null || true
-
-            if [ -f plugins-config.tar.zst ]; then
-              SZ=$(stat -c%s plugins-config.tar.zst 2>/dev/null || echo 0)
-              if [ "$SZ" -gt 100 ]; then
-                rclone copy plugins-config.tar.zst rclone-mc:mc-backup/ \
-                  --transfers=4 \
-                  --retries=3 \
-                  --checksum \
-                  2>/dev/null &
-                PIDS+=($!)
-                echo "Configs: $(du -sh plugins-config.tar.zst 2>/dev/null | cut -f1)"
-              fi
-            fi
-          fi
-
           [ "${#PIDS[@]}" -gt 0 ] && wait "${PIDS[@]}" || true
+          rm -f world.tar.zst
 
-          # Rapport final Drive
-          echo "=== Espace Drive utilise ==="
+          echo "=== Espace Drive ==="
           rclone size rclone-mc:mc-backup/ 2>/dev/null || true
           echo "=== BACKUP FINAL TERMINE ==="
