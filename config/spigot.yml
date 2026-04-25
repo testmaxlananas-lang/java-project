@@ -1,10 +1,57 @@
+settings:
+  timeout-time: 120
+  restart-on-crash: false
+  restart-script: ''
+  bungeecord: false
+  sample-count: 12
+  player-shuffle: 0
+  user-cache-size: 1000
+  save-user-cache-on-stop-only: false
+  moved-wrongly-threshold: 0.0625
+  moved-too-quickly-multiplier: 10.0
+  log-villager-deaths: false
+  log-named-deaths: true
 world-settings:
   default:
+    verbose: false
     view-distance: 20
+    simulation-distance: 10
+    thunder-chance: 100000
+    mob-spawn-range: 4
+    entity-activation-range:
+      animals: 16
+      monsters: 24
+      raiders: 48
+      misc: 8
+      water: 8
+      villagers: 16
+      flying-monsters: 32
     merge-radius:
       item: 3.5
       exp: 6.0
-    mob-spawn-range: 4
-  settings:
-  timeout-time: 120       # était 60
-  restart-on-crash: false # désactiver restart auto
+    hopper-amount: 3
+    dragon-death-sound-radius: 0
+    seed-village: 10387312
+    seed-desert: 14357617
+    seed-igloo: 14357618
+    seed-jungle: 14357619
+    seed-swamp: 14357620
+    seed-monument: 10387313
+    seed-shipwreck: 165745295
+    seed-ocean: 14357621
+    seed-outpost: 165745296
+    seed-endcity: 10387313
+    seed-slime: 987234911
+    seed-nether: 30084232
+    seed-mansion: 10387319
+    seed-fossil: 14357921
+    seed-portal: 34222645
+    hunger:
+      walk-exhaustion: 0.0
+      sprint-exhaustion: 0.0
+      combat-exhaustion: 0.0
+      regen-exhaustion: 0.0
+      swim-exhaustion: 0.0
+      dive-exhaustion: 0.0
+      jump-exhaustion: 0.0
+      fly-exhaustion: 0.0
