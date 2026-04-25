@@ -1,49 +1,133 @@
+# FAWE - Config optimisée pour build server 16GB / 4 CPU
+# Basée sur la config officielle + tweaks performance
+
+region-restrictions: false
+max-memory-percent: 95
+slower-memory-percent: 80
+
 enabled-components:
   commands: true
-  default-locale: en
+  debug: false
+  snapshot-update-notifications: false
+  release-update-notifications: false
+  notify-update-ingame: false
   lighting-fixer: false
-
-queue:
-  # 500M blocs = besoin de queues massives
-  target-size: 262144        # 256K blocs par batch (max)
-  parallel-threads: 8        # tous les threads dispo
-  discard-after-ms: 3600000  # 1h de timeout
-  light-queue-size: 65536
-  chunk-activations: true
-  async-dissipate: true
-
-history:
-  use-disk: true             # CRITIQUE : évite OOM sur 500M blocs
-  use-database: false
-  max-changes-per-second: 0  # pas de limite
-  chunk-bound-history: false
-  combine-stages: true
-  linear-expiry: 0           # jamais expirer
+  default-locale: en
 
 clipboard:
-  use-disk: true             # clipboard sur disque
-  compression-level: 1       # compression rapide
+  use-disk: true
+  compression-level: 1
+  delete-after-days: 7
+  delete-on-logout: false
+  save-clipboard-nbt-to-disk: true
+  lock-clipboard-file: false
 
 lighting:
+  delay-packet-sending: true
   async: true
-  delay: 0
-  relight: false             # désactiver relight sur grosses ops
+  mode: 1          # Optimal : relight seulement les blocs changés
+  remove-first: true
 
-limits:
-  # AUCUNE limite sur rien
-  max-actions: -1
-  max-changes: -1
-  max-fails: -1
-  max-checks: -1
-  max-iterations: -1
-  max-blockstates: -1
-  max-entities: -1
-  max-history: -1
+tick-limiter:
+  enabled: false   # Pas de limite sur un serveur build dédié
 
-progress:
-  delay: 1000
-  interval: 1
-  enabled: true
+web:
+  url: "https://schem.intellectualsites.com/fawe/"
+  arkitektonika-backend-url: "https://api.schematic.cloud/"
+  arkitektonika-download-url: "https://schematic.cloud/download/{key}"
+  arkitektonika-delete-url: "https://schematic.cloud/delete/{key}"
+  max-image-load-time: 5
+  max-image-size: 8294400
+  allowed-image-hosts:
+    - "i.imgur.com"
 
 extent:
-  clipboard-class: com.fastasyncworldedit.core.extent.clipboard.DiskOptimizedClipboard
+  allowed-plugins: []
+  debug: false
+
+experimental:
+  undo-batch-size: 256        # Augmenté pour moins d'overhead
+  anvil-queue-mode: false
+  dynamic-chunk-rendering: -1
+  persistent-brushes: true
+  keep-entities-in-blocks: true
+  remove-entity-from-world-on-chunk-fail: true
+  improved-entity-edits: true
+  other: false
+  allow-tick-fluids: false
+  use-vector-api: true        # ACTIVÉ : accélère certaines opérations vectorielles
+
+queue:
+  progress:
+    display: "chat"
+    interval: 1
+    delay: 3000
+  parallel-threads: 4          # = nproc exact du runner (4 CPU)
+  target-size: 4096            # 64 × parallel-threads, bon équilibre
+  extra-time-ms: 0
+  preload-chunk-count: 2048    # 128 × 16GB / 1 joueur
+  pool: true
+  async-chunk-load-write: true
+  thread-target-size-percent: 100  # Max par thread (1 joueur à la fois)
+
+history:
+  use-disk: true
+  use-database: false          # Pas besoin d'inspection/rollback
+  combine-stages: true
+  send-before-history: true
+  compression-level: 3         # Compression rapide sur disque
+  buffer-size: 1048576         # 1MB buffer
+  delete-after-days: 3
+  delete-on-logout: false
+  delete-disk-on-logout: false
+  enable-for-console: true
+  store-redo: true
+  small-edits: false
+
+paths:
+  textures: "textures"
+  heightmap: "heightmap"
+  history: "history"
+  clipboard: "clipboard"
+  per-player-schematics: false
+
+limits:
+  default:
+    max-actions: -1
+    max-changes: -1
+    max-checks: -1
+    max-fails: -1
+    max-iterations: -1
+    max-entities: -1
+    max-radius: -1
+    max-super-pickaxe-size: 5
+    max-brush-radius: -1
+    max-butcher-radius: -1
+    max-blockstates: -1
+    max-history-mb: -1
+    schem-file-size-limit: -1
+    schem-file-num-limit: -1
+    max-expression-ms: 5000
+    speed-reduction: 0
+    fast-placement: true
+    inventory-mode: 0
+    confirm-large: false        # Pas de confirmation sur serveur build
+    restrict-history-to-regions: false
+    strip-nbt: []
+    universal-disallowed-blocks: false
+    allow-legacy: true
+    skip-creature-spawn-events: true  # Plus rapide, pas de spawn en creative
+    disallowed-blocks: []
+    remap-properties: []
+
+general:
+  unstuck-on-generate: true
+  limit-unlimited-confirms: false
+  limit-unlimited-skips-creature-spawn-events: true
+
+region-restrictions-options:
+  mode: "MEMBER"
+  allow-blacklists: false
+  exclusive-managers: []
+  worldguard-region-blacklist: false
+  restrict-to-safe-range: true
