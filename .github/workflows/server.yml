@@ -11,17 +11,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Force Java 21
-        run: |
-          sudo update-alternatives --set java /usr/lib/jvm/java-21-openjdk-amd64/bin/java
-          java -version
-
       - name: Setup rclone
         run: |
-          curl https://rclone.org/install.sh | sudo bash
+          curl -s https://rclone.org/install.sh | sudo bash
           mkdir -p ~/.config/rclone
           echo "${{ secrets.RCLONE_CONF_B64 }}" | base64 -d > ~/.config/rclone/rclone.conf
-          cat ~/.config/rclone/rclone.conf
 
       - name: Restore world
         run: |
@@ -35,7 +29,7 @@ jobs:
           wget -q -O server.jar \
             "https://api.papermc.io/v2/projects/paper/versions/1.21.10/builds/129/downloads/paper-1.21.10-129.jar"
 
-      - name: Tunnel TCP via serveo
+      - name: Tunnel TCP
         run: |
           ssh -o StrictHostKeyChecking=no \
               -o ServerAliveInterval=30 \
@@ -43,17 +37,14 @@ jobs:
               -R 0:localhost:25565 \
               serveo.net 2>&1 | tee tunnel.log &
           sleep 12
-          cat tunnel.log
-          IP=$(grep -oP 'Forwarding TCP connections from \K\S+' tunnel.log | head -1)
+          grep -oP 'Forwarding TCP connections from \K\S+' tunnel.log || cat tunnel.log
           echo "==============================="
-          echo "  IP MINECRAFT : ${IP}"
+          echo "  IP : $(grep -oP 'Forwarding TCP connections from \K\S+' tunnel.log | head -1)"
           echo "==============================="
 
-      - name: Start server
+      - name: Start Paper 1.21.10
         run: |
-          export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
-          export PATH=$JAVA_HOME/bin:$PATH
-          java \
+          /usr/lib/jvm/temurin-21-jdk-amd64/bin/java \
             -Xms6G -Xmx6G \
             -XX:+UseG1GC \
             -XX:+ParallelRefProcEnabled \
