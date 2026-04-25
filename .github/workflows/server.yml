@@ -17,31 +17,55 @@ jobs:
           mkdir -p ~/.config/rclone
           echo "${{ secrets.RCLONE_CONF_B64 }}" | base64 -d > ~/.config/rclone/rclone.conf
 
-      - name: Restore world
+      - name: Restore world + plugins
         run: |
           rclone copy rclone-mc:mc-backup/world.tar.zst . --ignore-errors || true
           rclone copy rclone-mc:mc-backup/plugins.tar.zst . --ignore-errors || true
           [ -f world.tar.zst ] && tar --zstd -xf world.tar.zst && echo "World restored" || echo "Fresh start"
           [ -f plugins.tar.zst ] && tar --zstd -xf plugins.tar.zst && echo "Plugins restored" || true
 
+      - name: Cache Paper jar
+        uses: actions/cache@v4
+        with:
+          path: paper.jar
+          key: paper-1.21.10-129
+
       - name: Download Paper 1.21.10
         run: |
-          wget -q -O server.jar \
-            "https://api.papermc.io/v2/projects/paper/versions/1.21.10/builds/129/downloads/paper-1.21.10-129.jar"
+          if [ ! -f paper.jar ]; then
+            wget -q -O paper.jar \
+              "https://api.papermc.io/v2/projects/paper/versions/1.21.10/builds/129/downloads/paper-1.21.10-129.jar"
+            echo "Downloaded fresh"
+          else
+            echo "Using cached jar"
+          fi
+          cp paper.jar server.jar
 
-      - name: Tunnel TCP
+      - name: Cache Mojang jar
         run: |
-          curl -L https://github.com/ekzhang/bore/releases/download/v0.5.0/bore-v0.5.0-x86_64-unknown-linux-musl.tar.gz \
-            | tar xz
-          chmod +x bore
-          ./bore local 25565 --to bore.pub 2>&1 | tee tunnel.log &
-          sleep 8
-          IP=$(grep -oP 'listening at bore\.pub:\K[0-9]+' tunnel.log | head -1)
-          echo "==============================="
-          echo "  IP : bore.pub:${IP}"
-          echo "==============================="
+          mkdir -p cache
+          if [ -f cache/mojang_1.21.10.jar ]; then
+            mkdir -p versions/1.21.10
+            cp cache/mojang_1.21.10.jar versions/1.21.10/mojang_1.21.10.jar
+            echo "Mojang jar pre-cached"
+          fi
 
-      - name: Start Paper 1.21.10
+      - name: Install playit tunnel
+        run: |
+          curl -SsL https://playit-cloud.github.io/ppa/key.gpg \
+            | gpg --dearmor \
+            | sudo tee /etc/apt/trusted.gpg.d/playit.gpg >/dev/null
+          echo "deb [signed-by=/etc/apt/trusted.gpg.d/playit.gpg] https://playit-cloud.github.io/ppa/v0 . /" \
+            | sudo tee /etc/apt/sources.list.d/playit-cloud.list
+          sudo apt-get update -qq && sudo apt-get install -y playit
+          echo "${{ secrets.PLAYIT_SECRET }}" > ~/.config/playit/secret.toml
+          playit 2>&1 | tee playit.log &
+          sleep 15
+          echo "=== PLAYIT LOG ==="
+          cat playit.log
+          echo "=================="
+
+      - name: Start Paper
         run: |
           /usr/lib/jvm/temurin-21-jdk-amd64/bin/java \
             -Xms6G -Xmx6G \
@@ -67,9 +91,15 @@ jobs:
             -Daikars.new.flags=true \
             -jar server.jar nogui
 
-      - name: Backup
+      - name: Backup world + plugins
         if: always()
         run: |
-          [ -d world ] && tar --zstd -cf world.tar.zst world/ && rclone copy world.tar.zst rclone-mc:mc-backup/ || true
-          [ -d plugins ] && tar --zstd -cf plugins.tar.zst plugins/ && rclone copy plugins.tar.zst rclone-mc:mc-backup/ || true
+          if [ -d world ]; then
+            tar --zstd -cf world.tar.zst world/
+            rclone copy world.tar.zst rclone-mc:mc-backup/
+          fi
+          if [ -d plugins ]; then
+            tar --zstd -cf plugins.tar.zst plugins/
+            rclone copy plugins.tar.zst rclone-mc:mc-backup/
+          fi
           echo "Backup done"
