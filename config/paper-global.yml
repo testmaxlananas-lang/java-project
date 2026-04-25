@@ -2,3 +2,7 @@ chunk-loading:
   autoconfig-send-distance: true
   target-player-chunk-send-rate: 100.0
   global-max-chunk-load-rate: -1.0
+# Dans la section timings/watchdog
+watchdog:
+  early-warning-delay: 60000
+  early-warning-every: 10000
