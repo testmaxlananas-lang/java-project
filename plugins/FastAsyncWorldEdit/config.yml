@@ -1,13 +1,29 @@
+enabled-components:
+  commands: true
+  default-locale: en
+  lighting-fixer: false
 queue:
   target-size: 65536
   parallel-threads: 8
   discard-after-ms: 600000
+  light-queue-size: 4096
+  chunk-activations: true
+  async-dissipate: false
 history:
   use-disk: true
   use-database: false
   max-changes-per-second: 0
+  chunk-bound-history: false
+  combine-stages: true
+  linear-expiry: 0
 clipboard:
   use-disk: true
+  compression-level: 1
+lighting:
+  async: true
+  delay: 0
+  relight: true
+  sky-obstructions: false
 limits:
   max-actions: -1
   max-changes: -1
@@ -16,6 +32,10 @@ limits:
   max-iterations: -1
   max-blockstates: -1
   max-entities: -1
-lighting:
-  async: true
-  delay: 0
+  max-history: -1
+progress:
+  delay: 5000
+  interval: 1
+  enabled: true
+extent:
+  clipboard-class: com.fastasyncworldedit.core.extent.clipboard.DiskOptimizedClipboard
