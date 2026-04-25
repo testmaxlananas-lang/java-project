@@ -12,49 +12,48 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Java 21
-        run: sudo apt-get install -y openjdk-21-jre-headless
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y openjdk-21-jdk-headless
+          java -version
 
       - name: Setup rclone
         run: |
           curl https://rclone.org/install.sh | sudo bash
           mkdir -p ~/.config/rclone
-          printf '%s' "${{ secrets.RCLONE_CONF }}" > ~/.config/rclone/rclone.conf
+          cat > ~/.config/rclone/rclone.conf << 'RCLONE_EOF'
+          ${{ secrets.RCLONE_CONF }}
+          RCLONE_EOF
 
       - name: Restore world
         run: |
           rclone copy rclone-mc:mc-backup/world.tar.zst . --ignore-errors || true
           rclone copy rclone-mc:mc-backup/plugins.tar.zst . --ignore-errors || true
-          if [ -f world.tar.zst ]; then
-            tar --zstd -xf world.tar.zst && echo "World restored"
-          else
-            echo "Fresh start"
-          fi
-          if [ -f plugins.tar.zst ]; then
-            tar --zstd -xf plugins.tar.zst && echo "Plugins restored"
-          fi
+          [ -f world.tar.zst ] && tar --zstd -xf world.tar.zst && echo "World restored" || echo "Fresh start"
+          [ -f plugins.tar.zst ] && tar --zstd -xf plugins.tar.zst && echo "Plugins restored" || true
 
       - name: Download Paper 1.21.10
         run: |
           wget -q -O server.jar \
             "https://api.papermc.io/v2/projects/paper/versions/1.21.10/builds/129/downloads/paper-1.21.10-129.jar"
 
-      - name: Start tunnel
+      - name: Install & start tunnel TCP (serveo)
         run: |
           ssh -o StrictHostKeyChecking=no \
-              -o ServerAliveInterval=60 \
+              -o ServerAliveInterval=30 \
+              -o ServerAliveCountMax=999 \
               -R 25565:localhost:25565 \
-              nokey@localhost.run 2>&1 | tee tunnel.log &
-          sleep 8
-          IP=$(grep -o '[a-z0-9]*\.lhr\.life' tunnel.log | head -1)
+              serveo.net 2>&1 | tee tunnel.log &
+          sleep 10
+          IP=$(grep -o 'Forwarding TCP.*' tunnel.log | grep -o '[0-9]*\.serveo\.net:[0-9]*' | head -1)
           echo "==============================="
-          echo "  IP : ${IP}:25565"
+          echo "  IP : ${IP}"
           echo "==============================="
 
       - name: Start server
         run: |
           java \
             -Xms6G -Xmx6G \
-            \
             -XX:+UseG1GC \
             -XX:+ParallelRefProcEnabled \
             -XX:MaxGCPauseMillis=200 \
@@ -73,21 +72,13 @@ jobs:
             -XX:SurvivorRatio=32 \
             -XX:+PerfDisableSharedMem \
             -XX:MaxTenuringThreshold=1 \
-            \
             -Dusing.aikars.flags=https://mcflags.emc.gs \
             -Daikars.new.flags=true \
-            \
             -jar server.jar nogui
 
       - name: Backup world + plugins
         if: always()
         run: |
-          if [ -d world ]; then
-            tar --zstd -cf world.tar.zst world/
-            rclone copy world.tar.zst rclone-mc:mc-backup/
-          fi
-          if [ -d plugins ]; then
-            tar --zstd -cf plugins.tar.zst plugins/
-            rclone copy plugins.tar.zst rclone-mc:mc-backup/
-          fi
+          [ -d world ] && tar --zstd -cf world.tar.zst world/ && rclone copy world.tar.zst rclone-mc:mc-backup/ || true
+          [ -d plugins ] && tar --zstd -cf plugins.tar.zst plugins/ && rclone copy plugins.tar.zst rclone-mc:mc-backup/ || true
           echo "Backup done"
