@@ -1,0 +1,30 @@
+teleportenabled: true
+teleportauto: false
+godmode: false
+muted: false
+jailed: false
+ip-address: 127.0.0.1
+afk: false
+socialspy: false
+npc: false
+powertoolsenabled: true
+accepting-pay: true
+baltop-exempt: false
+timestamps:
+  lastteleport: 0
+  lastheal: 0
+  mute: 0
+  jail: 0
+  onlinejail: 0
+  logout: 0
+  login: 1777151919421
+money: '0'
+last-account-name: StaSolaire
+lastlocation:
+  world: d5daa0ed-4b98-4ee2-85d1-14905c3732c4
+  world-name: world
+  x: 133.12169949595022
+  y: -64.41847180563163
+  z: -56.68274953949166
+  yaw: 117.17074584960938
+  pitch: 0.9039900898933411

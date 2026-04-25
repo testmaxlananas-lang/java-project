@@ -11,13 +11,13 @@ powertoolsenabled: true
 accepting-pay: true
 baltop-exempt: false
 timestamps:
-  lastteleport: 0
+  lastteleport: 1777152491139
   lastheal: 0
   mute: 0
   jail: 0
   onlinejail: 0
   logout: 1777151540528
-  login: 1777151301673
+  login: 1777151929496
 money: '0'
 last-account-name: MaxLananas
 logoutlocation:
@@ -28,3 +28,11 @@ logoutlocation:
   z: -575.0293817836406
   yaw: -113.15806579589844
   pitch: 34.199989318847656
+lastlocation:
+  world: d5daa0ed-4b98-4ee2-85d1-14905c3732c4
+  world-name: world
+  x: -587.4055814838979
+  y: 225.22579742106828
+  z: -203.3153202740846
+  yaw: 47.5819091796875
+  pitch: 47.564449310302734
