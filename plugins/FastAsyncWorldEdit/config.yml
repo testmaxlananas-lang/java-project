@@ -1,0 +1,21 @@
+queue:
+  target-size: 65536
+  parallel-threads: 8
+  discard-after-ms: 600000
+history:
+  use-disk: true
+  use-database: false
+  max-changes-per-second: 0
+clipboard:
+  use-disk: true
+limits:
+  max-actions: -1
+  max-changes: -1
+  max-fails: -1
+  max-checks: -1
+  max-iterations: -1
+  max-blockstates: -1
+  max-entities: -1
+lighting:
+  async: true
+  delay: 0
