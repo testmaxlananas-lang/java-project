@@ -1,20 +1,20 @@
-# The config-version line is immutable. Don't change the value, it will reset itself after every reboot.
 config-version: 7
 update-checker:
-  enabled: true
+  enabled: false              # Pas besoin de vérifier les updates en prod
   interval: 6
-message-on-login-enabled: true
-persist-sessions-on-logout: true
-default-block-material: minecraft:air
+message-on-login-enabled: false   # Réduit le spam au login
+persist-sessions-on-logout: true  # Garde les sessions → pas besoin de reconfigurer
+default-block-material: minecraft:stone
 default-replace-block-material: minecraft:air
-default-brush-size: 3
-litesniper-max-brush-size: 7
+default-brush-size: 5         # Taille par défaut plus utile pour le build
+litesniper-max-brush-size: 50
 litesniper-restricted-materials:
 - minecraft:barrier
 - minecraft:bedrock
-brush-size-warning-threshold: 100
+brush-size-warning-threshold: 500  # Avertissement seulement au-dessus de 500
 default-voxel-height: 1
 default-cylinder-center: 0
+
 brush-properties:
   Biome:
     default-biome-type: minecraft:plains
@@ -33,7 +33,7 @@ brush-properties:
   Clone Stamp:
     default-stamp-type: DEFAULT
   Copy Pasta:
-    block-limit: 10000
+    block-limit: 50000000     # 50M blocs, aucune limite pratique
   Ellipse:
     scl-min: 1
     scl-max: 9999
@@ -94,7 +94,7 @@ brush-properties:
     entity-stack-limit: 50
     default-jockey-type: NORMAL_ALL_ENTITIES
   Move:
-    max-block-count: 5000000
+    max-block-count: 50000000   # 50M blocs
   Ocean:
     water-level-min: 12
     low-cut-level: 12
@@ -148,9 +148,9 @@ brush-properties:
     default-growth-percent: 1000
     default-splatter-recursions: 3
   Set:
-    selection-size-max: 5000000
+    selection-size-max: 50000000   # 50M blocs
   Shell Set:
-    max-size: 5000000
+    max-size: 50000000
   Stencil List:
     default-paste-option: 1
   Splatter Overlay:
@@ -191,8 +191,8 @@ brush-properties:
     default-splatter-recursions: 3
   Stencil:
     default-paste-option: 1
-    default-max-area-volume: 5000000
-    default-max-save-volume: 50000
+    default-max-area-volume: 50000000
+    default-max-save-volume: 5000000
   Tree Snipe:
     default-tree-type: TREE
   Three Point Circle:
