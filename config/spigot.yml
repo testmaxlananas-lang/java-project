@@ -11,26 +11,39 @@ settings:
   moved-too-quickly-multiplier: 10.0
   log-villager-deaths: false
   log-named-deaths: true
+
 world-settings:
   default:
     verbose: false
     view-distance: 20
-    simulation-distance: 10
+    simulation-distance: 6        # Réduit de 10 à 6 : les entités n'ont pas besoin de simuler loin sur un serveur build
     thunder-chance: 100000
-    mob-spawn-range: 4
+    mob-spawn-range: 2            # Réduit : moins de mobs = plus de perf
     entity-activation-range:
-      animals: 16
-      monsters: 24
-      raiders: 48
-      misc: 8
-      water: 8
-      villagers: 16
-      flying-monsters: 32
+      animals: 8                  # Réduit drastiquement, pas besoin sur serveur build
+      monsters: 8
+      raiders: 16
+      misc: 2
+      water: 2
+      villagers: 8
+      flying-monsters: 8
+      villagers-work-immunity-after: 100
+      villagers-work-immunity-for: 20
+      ignore-spectators: true     # Les spectateurs n'activent pas les entités
+    entity-tracking-range:
+      players: 128
+      animals: 48
+      monsters: 48
+      misc: 32
+      display: 128
+      other: 64
     merge-radius:
-      item: 3.5
-      exp: 6.0
-    hopper-amount: 3
+      item: 6.0                   # Merge items plus agressivement
+      exp: 8.0
+    hopper-amount: 1              # Réduit le throughput des hoppers (inutiles sur serveur build)
+    hopper-can-load-chunks: false
     dragon-death-sound-radius: 0
+    max-tnt-per-tick: 100         # Limite le TNT en même temps
     seed-village: 10387312
     seed-desert: 14357617
     seed-igloo: 14357618
