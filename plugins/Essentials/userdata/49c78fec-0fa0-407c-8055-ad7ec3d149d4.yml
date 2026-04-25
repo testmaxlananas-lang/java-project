@@ -16,18 +16,18 @@ timestamps:
   mute: 0
   jail: 0
   onlinejail: 0
-  logout: 1777155219987
+  logout: 1777157018466
   login: 1777155813923
 money: '0'
 last-account-name: MaxLananas
 logoutlocation:
-  world: d5daa0ed-4b98-4ee2-85d1-14905c3732c4
-  world-name: world
-  x: 685.511459678187
-  y: 62.013915719869374
-  z: 560.5175154778531
-  yaw: -105.6529541015625
-  pitch: 39.899993896484375
+  world: fd9fd535-589d-4513-92d9-2862cae84b6d
+  world-name: test
+  x: -25.61915907439871
+  y: 42.478632103865436
+  z: -69.44474587738613
+  yaw: 90.45001983642578
+  pitch: 15.000003814697266
 lastlocation:
   world: d5daa0ed-4b98-4ee2-85d1-14905c3732c4
   world-name: world
