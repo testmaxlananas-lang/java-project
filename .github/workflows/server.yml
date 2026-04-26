@@ -265,7 +265,7 @@ jobs:
           MC_EVENT_FILE:      /tmp/mc_events.jsonl
           MC_PIPE:            /tmp/mc_input
           MC_STATS_FILE:      /tmp/mc_stats.txt
-          MC_LOG:             mc.log
+          MC_LOG:             /home/runner/work/java-project/java-project/mc.log
         run: |
           touch /tmp/mc_events.jsonl
 
