@@ -16,7 +16,7 @@ header-footer:
         - ''
         - '<dark_gray>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</dark_gray>'
         - '<gray>🕐 <white>%time%  <dark_gray>|  <gray>📡 <white>%ping%ms  <dark_gray>|  <gray>🌍 <white>%world%'
-        - '<gray>👥 <white>%online%<gray>/<white>%maxplayers% joueurs'
+        - '<gray>👥 <white>%online%<gray>/<white>%server_max_players% joueurs'
         - '<dark_gray>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</dark_gray>'
         - ''
 
@@ -82,7 +82,7 @@ placeholder-refresh-intervals:
   '%ping%': 500
   '%world%': 1000
   '%online%': 2000
-  '%maxplayers%': 60000
+  '%server_max_players%': 60000  # ← remplace %maxplayers%
 
 assign-groups-by-permissions: false
 
