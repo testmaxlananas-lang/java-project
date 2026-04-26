@@ -23,8 +23,14 @@ bot                     = commands.Bot(command_prefix="!", intents=intents)
 
 msg_queue: asyncio.Queue = asyncio.Queue()
 
+# ── Joueurs en ligne (suivi par events) ──────────────────────────────────────
+_online_players: set[str] = set()
 
-# ── Envoi commande au serveur MC ─────────────────────────────────────────────
+def get_online_players() -> list[str]:
+    return sorted(_online_players)
+
+
+# ── Envoi commande MC ─────────────────────────────────────────────────────────
 def mc_cmd(cmd: str) -> bool:
     try:
         with open(MC_PIPE, "w") as f:
@@ -34,13 +40,6 @@ def mc_cmd(cmd: str) -> bool:
     except Exception as e:
         print(f"[Bot] mc_cmd erreur: {e}", flush=True)
         return False
-
-
-# ── Joueurs en ligne : suivi par events jsonl (fiable) ───────────────────────
-_online_players: set[str] = set()
-
-def get_online_players() -> list[str]:
-    return sorted(_online_players)
 
 
 # ── Stats systeme ─────────────────────────────────────────────────────────────
@@ -60,9 +59,55 @@ def get_stats() -> dict:
     return result
 
 
-# ── Lecture events MC → queue Discord ────────────────────────────────────────
+# ── Verifier si le workflow est actif ────────────────────────────────────────
+async def is_workflow_running() -> bool:
+    url = (
+        f"https://api.github.com/repos/{REPO}"
+        f"/actions/workflows/server.yml/runs"
+        f"?status=in_progress&per_page=1"
+    )
+    headers = {
+        "Authorization": f"token {PAT}",
+        "Accept":        "application/vnd.github.v3+json"
+    }
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as r:
+                if r.status != 200:
+                    return False
+                data = await r.json()
+                runs = data.get("workflow_runs", [])
+                return len(runs) > 0
+    except Exception as e:
+        print(f"[Bot] is_workflow_running erreur: {e}", flush=True)
+        return False
+
+
+# ── Lancer le workflow ────────────────────────────────────────────────────────
+async def dispatch_workflow() -> bool:
+    url = (
+        f"https://api.github.com/repos/{REPO}"
+        f"/actions/workflows/server.yml/dispatches"
+    )
+    headers = {
+        "Authorization": f"token {PAT}",
+        "Accept":        "application/vnd.github.v3+json"
+    }
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.post(
+                url, headers=headers,
+                json={"ref": "main"},
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as r:
+                return r.status == 204
+    except Exception as e:
+        print(f"[Bot] dispatch_workflow erreur: {e}", flush=True)
+        return False
+
+
+# ── Lecture events MC ─────────────────────────────────────────────────────────
 async def event_reader():
-    global _online_players
     loop   = asyncio.get_event_loop()
     waited = 0
     while not os.path.isfile(EVENT_FILE):
@@ -109,7 +154,6 @@ async def event_reader():
             except json.JSONDecodeError:
                 continue
 
-            # Suivi joueurs en ligne
             t = ev.get("type", "")
             if t == "join":
                 _online_players.add(ev.get("player", ""))
@@ -128,13 +172,22 @@ def format_event(ev: dict) -> str | None:
     if t == "start":
         jvm = ev.get("jvm", "?")
         cpu = ev.get("cpus", "?")
-        return f":white_check_mark: **Le serveur est en ligne !** JVM: `{jvm}` | CPUs: `{cpu}`"
+        return (
+            f":white_check_mark: **Le serveur est en ligne !**"
+            f" JVM: `{jvm}` | CPUs: `{cpu}`"
+        )
     if t == "stop":
         return ":octagonal_sign: **Le serveur est arrete.**"
     if t == "restart":
-        return f":arrows_counterclockwise: **Redemarrage automatique** apres `{ev.get('minutes','?')}` minutes."
+        return (
+            f":arrows_counterclockwise: **Redemarrage automatique**"
+            f" apres `{ev.get('minutes','?')}` minutes."
+        )
     if t == "crash":
-        return f":red_circle: **Crash #{ev.get('count','?')}** — `{ev.get('cause','?')}` — Redemarrage dans 10s..."
+        return (
+            f":red_circle: **Crash #{ev.get('count','?')}**"
+            f" — `{ev.get('cause','?')}` — Redemarrage dans 10s..."
+        )
     if t == "crash_fatal":
         return ":skull: **Crash fatal** — Arret definitif."
     if t == "join":
@@ -148,7 +201,7 @@ def format_event(ev: dict) -> str | None:
     return None
 
 
-# ── Flush queue → salon Discord ───────────────────────────────────────────────
+# ── Flush queue → Discord ─────────────────────────────────────────────────────
 @tasks.loop(seconds=0.5)
 async def flush_queue():
     channel = bot.get_channel(CHANNEL)
@@ -166,43 +219,91 @@ async def flush_queue():
 
 # ════════════════════════════════════════════════════════════════════════════
 #  MESSAGES DISCORD → MINECRAFT
-#  Tout message qui ne commence pas par ! est envoye in-game
 # ════════════════════════════════════════════════════════════════════════════
 @bot.event
 async def on_message(message: discord.Message):
-    # Ignorer les messages du bot lui-meme
     if message.author.bot:
         return
 
-    # Seulement dans le bon salon
     if message.channel.id != CHANNEL:
         await bot.process_commands(message)
         return
 
     content = message.content.strip()
 
-    # Si c'est une commande (commence par !), traiter normalement
     if content.startswith("!"):
         await bot.process_commands(message)
         return
 
-    # Sinon : envoyer le message in-game avec le pseudo Discord
     if content:
-        author_name = message.author.display_name
-        # Nettoyer le pseudo : enlever caractères speciaux Minecraft
-        author_clean = re.sub(r'[§&]', '', author_name)
-        # Limiter la longueur
-        if len(content) > 200:
-            content = content[:200] + "..."
-        mc_cmd(f"say [Discord] {author_clean}: {content}")
-
-    # NE PAS appeler process_commands ici (message normal, pas une commande)
+        author_clean = re.sub(r"[§&]", "", message.author.display_name)
+        text         = content[:200] + "..." if len(content) > 200 else content
+        mc_cmd(f"say [Discord] {author_clean}: {text}")
 
 
 # ════════════════════════════════════════════════════════════════════════════
 #  COMMANDES
 # ════════════════════════════════════════════════════════════════════════════
 
+# ── !start ────────────────────────────────────────────────────────────────────
+@bot.command(name="start")
+async def cmd_start(ctx):
+    """!start — Lance le serveur s'il est arrete"""
+    msg = await ctx.send(":hourglass: Verification du statut du serveur...")
+
+    running = await is_workflow_running()
+
+    if running:
+        await msg.edit(
+            content=":green_circle: Le serveur est **deja en ligne** !"
+        )
+        return
+
+    await msg.edit(content=":rocket: Serveur arrete, lancement en cours...")
+    ok = await dispatch_workflow()
+
+    if ok:
+        await msg.edit(
+            content=(
+                ":white_check_mark: **Workflow lance !**\n"
+                ":clock3: Le serveur sera en ligne dans ~2-3 minutes."
+            )
+        )
+    else:
+        await msg.edit(
+            content=(
+                ":x: **Echec du lancement.**\n"
+                "Verifie que le PAT a les permissions `Actions: write`."
+            )
+        )
+
+
+# ── !restart ──────────────────────────────────────────────────────────────────
+@bot.command(name="restart")
+async def cmd_restart(ctx):
+    """!restart — Relance le workflow (force meme si deja actif)"""
+    msg = await ctx.send(":hourglass: Lancement du redemarrage...")
+    ok  = await dispatch_workflow()
+    if ok:
+        await msg.edit(
+            content=(
+                ":arrows_counterclockwise: **Redemarrage lance !**\n"
+                ":clock3: Le serveur sera de retour dans ~2-3 minutes."
+            )
+        )
+    else:
+        await msg.edit(content=":x: Echec du dispatch. Verifie le PAT.")
+
+
+# ── !stop ─────────────────────────────────────────────────────────────────────
+@bot.command(name="stop")
+async def cmd_stop(ctx):
+    """!stop — Arrete le serveur Minecraft"""
+    mc_cmd("stop")
+    await ctx.send(":octagonal_sign: Commande d'arret envoyee au serveur.")
+
+
+# ── !players ──────────────────────────────────────────────────────────────────
 @bot.command(name="players", aliases=["pl", "list", "who"])
 async def cmd_players(ctx):
     """!players — Joueurs connectes"""
@@ -212,24 +313,41 @@ async def cmd_players(ctx):
     else:
         names = ", ".join(f"**{p}**" for p in players)
         await ctx.send(
-            f":green_circle: **{len(players)} joueur(s) en ligne:** {names}"
+            f":green_circle: **{len(players)} joueur(s) en ligne :** {names}"
         )
 
 
+# ── !status ───────────────────────────────────────────────────────────────────
 @bot.command(name="status")
 async def cmd_status(ctx):
-    """!status — Statut complet"""
+    """!status — Statut complet du serveur"""
+    msg = await ctx.send(":hourglass: Recuperation du statut...")
+
+    running = await is_workflow_running()
     stats   = get_stats()
     players = get_online_players()
-    if not stats:
-        await ctx.send(":red_circle: **Serveur hors ligne ou stats non disponibles.**")
+
+    if not running:
+        await msg.edit(content=":red_circle: **Le serveur est hors ligne.**")
         return
+
+    if not stats:
+        await msg.edit(
+            content=":yellow_circle: **Serveur en demarrage...** (stats pas encore disponibles)"
+        )
+        return
+
     tps_raw = stats.get("TPS", "N/A")
     try:
-        tps_f   = float(tps_raw)
-        tps_em  = ":green_circle:" if tps_f >= 18 else ":yellow_circle:" if tps_f >= 15 else ":red_circle:"
+        tps_f  = float(tps_raw)
+        tps_em = (
+            ":green_circle:"  if tps_f >= 18 else
+            ":yellow_circle:" if tps_f >= 15 else
+            ":red_circle:"
+        )
     except ValueError:
-        tps_em  = ":white_circle:"
+        tps_em = ":white_circle:"
+
     lines = [
         ":satellite: **Statut du serveur**",
         "```",
@@ -238,17 +356,20 @@ async def cmd_status(ctx):
         f"RAM    : {stats.get('RAM',  'N/A')}",
         f"Swap   : {stats.get('SWAP', 'N/A')}",
         f"Disque : {stats.get('DISK', 'N/A')}",
-        f"TPS    : {tps_raw}  {tps_em}",
+        f"TPS    : {tps_raw}",
         f"Online : {len(players)} joueur(s)",
         "```",
+        f"{tps_em} TPS",
     ]
     if players:
         lines.append(
             f":busts_in_silhouette: {', '.join(f'**{p}**' for p in players)}"
         )
-    await ctx.send("\n".join(lines))
+
+    await msg.edit(content="\n".join(lines))
 
 
+# ── !tps ──────────────────────────────────────────────────────────────────────
 @bot.command(name="tps")
 async def cmd_tps(ctx):
     """!tps — TPS actuel"""
@@ -256,15 +377,20 @@ async def cmd_tps(ctx):
     tps_raw = stats.get("TPS", "N/A")
     try:
         tps_f  = float(tps_raw)
-        emoji  = ":green_circle:" if tps_f >= 18 else ":yellow_circle:" if tps_f >= 15 else ":red_circle:"
+        emoji  = (
+            ":green_circle:"  if tps_f >= 18 else
+            ":yellow_circle:" if tps_f >= 15 else
+            ":red_circle:"
+        )
     except ValueError:
-        emoji  = ":white_circle:"
+        emoji = ":white_circle:"
     online = len(get_online_players())
     await ctx.send(
         f"{emoji} **TPS:** `{tps_raw}` | **Online:** `{online}` joueur(s)"
     )
 
 
+# ── !kick ─────────────────────────────────────────────────────────────────────
 @bot.command(name="kick")
 async def cmd_kick(ctx, player: str = None, *, reason: str = "Kicked by admin"):
     """!kick <pseudo> [raison]"""
@@ -275,6 +401,7 @@ async def cmd_kick(ctx, player: str = None, *, reason: str = "Kicked by admin"):
     await ctx.send(f":boot: **{player}** a ete kick. Raison: `{reason}`")
 
 
+# ── !ban ──────────────────────────────────────────────────────────────────────
 @bot.command(name="ban")
 async def cmd_ban(ctx, player: str = None, *, reason: str = "Banned by admin"):
     """!ban <pseudo> [raison]"""
@@ -285,6 +412,7 @@ async def cmd_ban(ctx, player: str = None, *, reason: str = "Banned by admin"):
     await ctx.send(f":hammer: **{player}** a ete banni. Raison: `{reason}`")
 
 
+# ── !unban ────────────────────────────────────────────────────────────────────
 @bot.command(name="unban", aliases=["pardon"])
 async def cmd_unban(ctx, player: str = None):
     """!unban <pseudo>"""
@@ -295,6 +423,7 @@ async def cmd_unban(ctx, player: str = None):
     await ctx.send(f":white_check_mark: **{player}** a ete debanni.")
 
 
+# ── !op / !deop ───────────────────────────────────────────────────────────────
 @bot.command(name="op")
 async def cmd_op(ctx, player: str = None):
     """!op <pseudo>"""
@@ -315,9 +444,10 @@ async def cmd_deop(ctx, player: str = None):
     await ctx.send(f":no_entry: **{player}** n'est plus OP.")
 
 
+# ── !say ──────────────────────────────────────────────────────────────────────
 @bot.command(name="say")
 async def cmd_say(ctx, *, message: str = None):
-    """!say <message> — Envoie dans le chat MC"""
+    """!say <message>"""
     if message is None:
         await ctx.send(":x: Usage: `!say <message>`")
         return
@@ -325,6 +455,18 @@ async def cmd_say(ctx, *, message: str = None):
     await ctx.send(f":speech_balloon: Message envoye: `{message}`")
 
 
+# ── !broadcast ────────────────────────────────────────────────────────────────
+@bot.command(name="broadcast", aliases=["bc"])
+async def cmd_broadcast(ctx, *, message: str = None):
+    """!broadcast <message>"""
+    if message is None:
+        await ctx.send(":x: Usage: `!broadcast <message>`")
+        return
+    mc_cmd(f"broadcast {message}")
+    await ctx.send(f":mega: Broadcast: `{message}`")
+
+
+# ── !tp ───────────────────────────────────────────────────────────────────────
 @bot.command(name="tp")
 async def cmd_tp(ctx, player: str = None, target: str = None):
     """!tp <joueur> <destination>"""
@@ -335,6 +477,7 @@ async def cmd_tp(ctx, player: str = None, target: str = None):
     await ctx.send(f":zap: **{player}** teleporte vers **{target}**.")
 
 
+# ── !give ─────────────────────────────────────────────────────────────────────
 @bot.command(name="give")
 async def cmd_give(ctx, player: str = None, item: str = None, amount: str = "1"):
     """!give <joueur> <item> [quantite]"""
@@ -345,6 +488,7 @@ async def cmd_give(ctx, player: str = None, item: str = None, amount: str = "1")
     await ctx.send(f":gift: Donne `{amount}x {item}` a **{player}**.")
 
 
+# ── !gamemode ─────────────────────────────────────────────────────────────────
 @bot.command(name="gamemode", aliases=["gm"])
 async def cmd_gamemode(ctx, player: str = None, mode: str = None):
     """!gamemode <joueur> <creative|survival|spectator|adventure>"""
@@ -355,13 +499,16 @@ async def cmd_gamemode(ctx, player: str = None, mode: str = None):
         "0": "survival", "1": "creative", "2": "adventure", "3": "spectator"
     }
     if player is None or mode is None:
-        await ctx.send(":x: Usage: `!gamemode <joueur> <creative|survival|spectator|adventure>`")
+        await ctx.send(
+            ":x: Usage: `!gamemode <joueur> <creative|survival|spectator|adventure>`"
+        )
         return
     resolved = modes.get(mode.lower(), mode)
     mc_cmd(f"gamemode {resolved} {player}")
     await ctx.send(f":joystick: Gamemode de **{player}** -> `{resolved}`.")
 
 
+# ── !time ─────────────────────────────────────────────────────────────────────
 @bot.command(name="time")
 async def cmd_time(ctx, value: str = None):
     """!time <day|night|noon|midnight|0-24000>"""
@@ -372,6 +519,7 @@ async def cmd_time(ctx, value: str = None):
     await ctx.send(f":clock3: Heure -> `{value}`.")
 
 
+# ── !weather ──────────────────────────────────────────────────────────────────
 @bot.command(name="weather")
 async def cmd_weather(ctx, value: str = None):
     """!weather <clear|rain|thunder>"""
@@ -382,6 +530,7 @@ async def cmd_weather(ctx, value: str = None):
     await ctx.send(f":cloud: Meteo -> `{value}`.")
 
 
+# ── !difficulty ───────────────────────────────────────────────────────────────
 @bot.command(name="difficulty")
 async def cmd_difficulty(ctx, value: str = None):
     """!difficulty <peaceful|easy|normal|hard>"""
@@ -392,11 +541,14 @@ async def cmd_difficulty(ctx, value: str = None):
     await ctx.send(f":crossed_swords: Difficulte -> `{value}`.")
 
 
+# ── !whitelist ────────────────────────────────────────────────────────────────
 @bot.command(name="whitelist", aliases=["wl"])
 async def cmd_whitelist(ctx, action: str = None, player: str = None):
     """!whitelist <add|remove|on|off|list> [joueur]"""
     if action is None:
-        await ctx.send(":x: Usage: `!whitelist <add|remove|on|off|list> [joueur]`")
+        await ctx.send(
+            ":x: Usage: `!whitelist <add|remove|on|off|list> [joueur]`"
+        )
         return
     if action in ("add", "remove"):
         if player is None:
@@ -408,9 +560,10 @@ async def cmd_whitelist(ctx, action: str = None, player: str = None):
         mc_cmd(f"whitelist {action}")
         await ctx.send(f":notepad_spiral: Whitelist -> `{action}`.")
     else:
-        await ctx.send(":x: Action invalide. Utilise: add, remove, on, off, list")
+        await ctx.send(":x: Actions valides: `add`, `remove`, `on`, `off`, `list`")
 
 
+# ── !heal ─────────────────────────────────────────────────────────────────────
 @bot.command(name="heal")
 async def cmd_heal(ctx, player: str = None):
     """!heal <pseudo>"""
@@ -421,6 +574,7 @@ async def cmd_heal(ctx, player: str = None):
     await ctx.send(f":heart: **{player}** soigne.")
 
 
+# ── !fly ──────────────────────────────────────────────────────────────────────
 @bot.command(name="fly")
 async def cmd_fly(ctx, player: str = None):
     """!fly <pseudo>"""
@@ -431,6 +585,7 @@ async def cmd_fly(ctx, player: str = None):
     await ctx.send(f":airplane: Vol toggle pour **{player}**.")
 
 
+# ── !clear ────────────────────────────────────────────────────────────────────
 @bot.command(name="clear")
 async def cmd_clear(ctx, player: str = None):
     """!clear <pseudo>"""
@@ -441,16 +596,7 @@ async def cmd_clear(ctx, player: str = None):
     await ctx.send(f":wastebasket: Inventaire de **{player}** vide.")
 
 
-@bot.command(name="broadcast", aliases=["bc"])
-async def cmd_broadcast(ctx, *, message: str = None):
-    """!broadcast <message>"""
-    if message is None:
-        await ctx.send(":x: Usage: `!broadcast <message>`")
-        return
-    mc_cmd(f"broadcast {message}")
-    await ctx.send(f":mega: Broadcast: `{message}`")
-
-
+# ── !sudo ─────────────────────────────────────────────────────────────────────
 @bot.command(name="sudo")
 async def cmd_sudo(ctx, *, command: str = None):
     """!sudo <commande brute MC>"""
@@ -461,29 +607,7 @@ async def cmd_sudo(ctx, *, command: str = None):
     await ctx.send(f":computer: Commande envoyee: `{command}`")
 
 
-@bot.command(name="stop")
-async def cmd_stop(ctx):
-    """!stop — Arrete le serveur"""
-    mc_cmd("stop")
-    await ctx.send(":octagonal_sign: Arret du serveur envoye.")
-
-
-@bot.command(name="restart")
-async def cmd_restart(ctx):
-    """!restart — Relance le workflow"""
-    url     = f"https://api.github.com/repos/{REPO}/actions/workflows/server.yml/dispatches"
-    headers = {
-        "Authorization": f"token {PAT}",
-        "Accept":        "application/vnd.github.v3+json"
-    }
-    async with aiohttp.ClientSession() as s:
-        async with s.post(url, headers=headers, json={"ref": "main"}) as r:
-            if r.status == 204:
-                await ctx.send(":white_check_mark: Serveur relance !")
-            else:
-                await ctx.send(f":x: Erreur {r.status}")
-
-
+# ── !logs ─────────────────────────────────────────────────────────────────────
 @bot.command(name="logs")
 async def cmd_logs(ctx, nb: int = 20):
     """!logs [nb] — Derniers logs MC"""
@@ -500,7 +624,6 @@ async def cmd_logs(ctx, nb: int = 20):
         if not content:
             await ctx.send(":x: Log vide.")
             return
-        # Tronquer si trop long
         if len(content) > 1900:
             content = "..." + content[-1897:]
         await ctx.send(f"```\n{content}\n```")
@@ -508,24 +631,28 @@ async def cmd_logs(ctx, nb: int = 20):
         await ctx.send(f":x: Erreur: `{e}`")
 
 
+# ── !help_mc ──────────────────────────────────────────────────────────────────
 @bot.command(name="help_mc", aliases=["cmds", "commands", "aide"])
 async def cmd_help(ctx):
     """!help_mc — Liste des commandes"""
     help_text = (
         ":joystick: **Commandes Bot Minecraft**\n\n"
-        "**Info**\n"
-        "`!players` `!pl` `!who` — Joueurs en ligne\n"
-        "`!status` — CPU / RAM / TPS / joueurs\n"
+        "**Serveur**\n"
+        "`!start` — Lancer le serveur s'il est arrete\n"
+        "`!restart` — Relancer le workflow\n"
+        "`!stop` — Arreter le serveur\n"
+        "`!status` — Statut complet\n"
         "`!tps` — TPS actuel\n"
         "`!logs [nb]` — Derniers logs\n\n"
-        "**Moderation**\n"
+        "**Joueurs**\n"
+        "`!players` `!pl` `!who` — Joueurs en ligne\n"
         "`!kick <pseudo> [raison]` — Kick\n"
         "`!ban <pseudo> [raison]` — Ban\n"
         "`!unban <pseudo>` — Unban\n"
         "`!op <pseudo>` — Donner OP\n"
         "`!deop <pseudo>` — Retirer OP\n"
         "`!whitelist <add|remove|on|off|list> [pseudo]`\n\n"
-        "**Joueur**\n"
+        "**Actions joueur**\n"
         "`!tp <joueur> <dest>` — Teleporter\n"
         "`!gamemode <joueur> <mode>` — Gamemode\n"
         "`!give <joueur> <item> [qte]` — Donner item\n"
@@ -536,18 +663,16 @@ async def cmd_help(ctx):
         "`!time <day|night|noon|midnight>` — Heure\n"
         "`!weather <clear|rain|thunder>` — Meteo\n"
         "`!difficulty <peaceful|easy|normal|hard>` — Difficulte\n\n"
-        "**Serveur**\n"
-        "`!say <message>` — Chat MC\n"
+        "**Chat**\n"
+        "`!say <message>` — Envoyer dans le chat MC\n"
         "`!broadcast <message>` — Broadcast\n"
-        "`!restart` — Relancer\n"
-        "`!stop` — Arreter\n"
         "`!sudo <commande>` — Commande brute\n\n"
         ":speech_balloon: **Ecrire normalement** dans ce salon envoie le message in-game !"
     )
     await ctx.send(help_text)
 
 
-# ── Events bot ────────────────────────────────────────────────────────────────
+# ── on_ready ──────────────────────────────────────────────────────────────────
 @bot.event
 async def on_ready():
     print(f"[Bot] Connecte: {bot.user}", flush=True)
