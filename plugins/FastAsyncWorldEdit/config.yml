@@ -160,54 +160,19 @@ experimental:
 
 # This relates to how FAWE places chunks
 queue:
-  progress:
-    # Display constant titles about the progress of a user's edit
-    #  - false = disabled
-    #  - title = Display progress titles
-    #  - chat = Display progress in chat
-    #  - Currently not implemented
-    display: "chat"
-    # How often edit progress is displayed
-    interval: 1
-    # Delay sending progress in milliseconds (so quick edits don't spam)
-    delay: 3000
-  # This should equal the number of processors you have
+  # Adapter au nombre de CPUs du runner GitHub (4 CPUs)
   parallel-threads: 4
-  # When doing edits that effect more than this many chunks:
-  #  - FAWE will start placing before all calculations are finished
-  #  - A larger value will use slightly less CPU time
-  #  - A smaller value will reduce memory usage
-  #  - A value too small may break some operations (deform?)
-  #  - Values smaller than the configured parallel-threads are not accepted
-  #  - It is recommended this option be at least 4x greater than parallel-threads
   target-size: 4096
-  # Increase or decrease queue intensity (ms) [-50,50]:
-  #     0 = balance of performance / stability
-  #     -10 = Allocate 10ms less for chunk placement
-  # Too high can cause lag spikes (you might be okay with this)
-  # Too low will result in slow edits
   extra-time-ms: 0
-  # Loading the right amount of chunks beforehand can speed up operations
-  #  - Low values may result in FAWE waiting on requests to the main thread
-  #  - Higher values use more memory and isn't noticeably faster
-  #  - A good (relatively) safe way to set this is
-  #  - Use 128 x GB of RAM / number of players expected to be using WE at the same time
-  #  - Paper and derivatives only. (requires delay-chunk-unloads-by to be set).
   preload-chunk-count: 2048
-  # If pooling is enabled (reduces GC, higher memory usage)
-  #  - Enable to improve performance at the expense of memory
   pool: true
-  # If chunk loading for writing edits to the world should be performed asynchronously to FAWE
-  #  - Enable to improve performance at the expense of memory
-  #  - If experience out of memory crashed, disable this or reduce slower-memory-percent
   async-chunk-load-write: true
-  # Percentage of queue.target-size to use per thread in multi-threaded operations
-  #  - Minimum of 100 / queue.parallel-threads (queue.target-size split across threads)
-  #  - Maximum of 100 (queue.target-size per thread)
-  #  - Higher performance at the expense of memory
-  #  - I.e. target-size=400, parallel-threads=8 and threads-target-size=25 means target-size of 100 per thread
-  #  - Defaults to 100 * 2 / parallel-threads
+  # 100% de target-size par thread = max perf
   thread-target-size-percent: 100
+  progress:
+    display: "chat"
+    interval: 1
+    delay: 3000
 
 history:
   # Should history be saved on disk:
