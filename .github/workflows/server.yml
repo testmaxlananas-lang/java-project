@@ -292,12 +292,10 @@ jobs:
           CPUS=$(nproc)
           echo "RAM: ${RAM_MB}MB | JVM: ${JVM} | CPUs: ${CPUS}"
 
-          # ── Commande MC ──────────────────────────────────────────────
           mc_cmd() {
             printf '%s\n' "$*" > "$MC_PIPE" 2>/dev/null || true
           }
 
-          # ── Envoi embed Discord via fichier JSON temporaire ──────────
           discord() {
             local color="$1"
             local title="$2"
@@ -305,7 +303,6 @@ jobs:
             [ -z "${DISCORD_WEBHOOK:-}" ] && return 0
             local ts
             ts="$(date '+%H:%M:%S')"
-            # Échappement JSON robuste via python3
             local payload
             payload=$(python3 -c "
 import json, sys
@@ -328,10 +325,8 @@ print(json.dumps(obj))
               -d "$payload" 2>/dev/null || true
           }
 
-          # ── Watcher Discord : lit mc.log ligne par ligne ─────────────
           discord_log_watcher() {
             [ -z "${DISCORD_WEBHOOK:-}" ] && return 0
-            # Attendre que le log existe
             local waited=0
             while [ ! -f "$MC_LOG" ]; do
               sleep 1
@@ -342,9 +337,6 @@ print(json.dumps(obj))
             tail -n 0 -f "$MC_LOG" 2>/dev/null | \
             while IFS= read -r LINE; do
 
-              # ── Joueur connecté ──────────────────────────────────────
-              # Ligne exemple :
-              # [03:13:02 INFO]: MaxLananas[/127.0.0.1:56156] logged in with entity id 1 at ...
               if echo "$LINE" | grep -qF "logged in with entity id"; then
                 PLAYER=$(echo "$LINE" \
                   | sed 's/.*INFO\]: //' \
@@ -355,9 +347,6 @@ print(json.dumps(obj))
                   "${PLAYER} a rejoint le serveur"
               fi
 
-              # ── Joueur déconnecté ────────────────────────────────────
-              # Ligne exemple :
-              # [03:13:02 INFO]: MaxLananas lost connection: Disconnected
               if echo "$LINE" | grep -qF "lost connection:"; then
                 PLAYER=$(echo "$LINE" \
                   | sed 's/.*INFO\]: //' \
@@ -368,9 +357,6 @@ print(json.dumps(obj))
                   "${PLAYER} a quitte le serveur"
               fi
 
-              # ── Message chat ─────────────────────────────────────────
-              # Ligne exemple :
-              # [03:13:08 INFO]: <MaxLananas> test
               if echo "$LINE" | grep -qP 'INFO\]: <\w+>'; then
                 PLAYER=$(echo "$LINE" \
                   | grep -oP '(?<=<)\w+(?=>)' || true)
@@ -383,11 +369,8 @@ print(json.dumps(obj))
                   "${TEXT}"
               fi
 
-              # ── Mort d'un joueur ─────────────────────────────────────
-              # Ligne exemple :
-              # [03:14:00 INFO]: MaxLananas was slain by Zombie
               if echo "$LINE" | grep -qiP \
-                  'INFO\]:.*\b(was slain|drowned|fell|burnt|starved|suffocated|killed by|hit the ground|blew up)\b'; then
+                'INFO\]:.*\b(was slain|drowned|fell|burnt|starved|suffocated|killed by|hit the ground|blew up)\b'; then
                 DEATH=$(echo "$LINE" \
                   | sed 's/.*INFO\]: //' || true)
                 [ -z "$DEATH" ] && DEATH="Un joueur est mort"
@@ -399,7 +382,6 @@ print(json.dumps(obj))
             done
           }
 
-          # ── GitHub helpers ───────────────────────────────────────────
           gh_cancel() {
             curl -sf -X POST \
               -H "Authorization: token ${FINE_GRAINED_PAT}" \
@@ -421,7 +403,6 @@ print(json.dumps(obj))
               || echo "[GH] Echec dispatch"
           }
 
-          # ── Détection mondes ─────────────────────────────────────────
           get_world_dirs() {
             local DIRS=""
             local BLACKLIST="plugins logs cache config libraries"
@@ -443,7 +424,6 @@ print(json.dumps(obj))
               2>/dev/null | wc -l
           }
 
-          # ── Monitoring système ───────────────────────────────────────
           monitor_loop() {
             while true; do
               L1=$(grep '^cpu ' /proc/stat 2>/dev/null \
@@ -498,8 +478,7 @@ print(json.dumps(obj))
               echo "  Swap   : $(echo "$D" | grep -oP 'SWAP=\K[^;]+')"
               echo "  Disque : $(echo "$D" | grep -oP 'DISK=\K[^;]+')"
               echo "  TPS    : $(echo "$D" | grep -oP 'TPS=\K[^;]+')"
-              echo "  Online : $(echo "$D" \
-                | grep -oP 'ONL=\K[^;]+') joueur(s)"
+              echo "  Online : $(echo "$D" | grep -oP 'ONL=\K[^;]+') joueurs"
               echo "  JVM    : $JVM"
             else
               echo "  Monitoring en demarrage..."
@@ -507,7 +486,6 @@ print(json.dumps(obj))
             echo "=============================="
           }
 
-          # ── Backup ──────────────────────────────────────────────────
           backup() {
             local LABEL="${1:-periodic}"
             local FORCE="${2:-0}"
@@ -560,7 +538,6 @@ print(json.dumps(obj))
             echo "[BACKUP:${LABEL}] Termine en $(( $(date +%s) - T0 ))s"
           }
 
-          # ── Git sync ─────────────────────────────────────────────────
           git_sync() {
             echo "[GIT] Sync runtime data..."
             git config user.name  "MC Server Bot"
@@ -601,7 +578,6 @@ print(json.dumps(obj))
             fi
           }
 
-          # ── Helpers arrêt / crash ────────────────────────────────────
           was_graceful() {
             tail -80 "$MC_LOG" 2>/dev/null | grep -qiE \
               "All dimensions are saved|Stopping server|Saving players"
@@ -621,7 +597,6 @@ print(json.dumps(obj))
             mc_cmd "say §c[Serveur] Redemarrage en cours !"
           }
 
-          # ── Lancement JVM ────────────────────────────────────────────
           start_mc() {
             tail -f "$MC_PIPE" 2>/dev/null | \
             "$JAVA" \
@@ -664,9 +639,6 @@ print(json.dumps(obj))
             echo $!
           }
 
-          # ════════════════════════════════════════════════════════════
-          #  DÉMARRAGE
-          # ════════════════════════════════════════════════════════════
           MC_PID=$(start_mc)
           T_START=$(date +%s)
           T_BACKUP=$(date +%s)
@@ -681,14 +653,10 @@ print(json.dumps(obj))
           live_logs           & LIVE_PID=$!
           discord_log_watcher & DISCORD_PID=$!
 
-          # Notification démarrage
           discord 3066993 \
             "Serveur demarre" \
             "Le serveur Minecraft est en ligne ! JVM: ${JVM} | CPUs: ${CPUS}"
 
-          # ════════════════════════════════════════════════════════════
-          #  BOUCLE PRINCIPALE
-          # ════════════════════════════════════════════════════════════
           while true; do
             sleep 20
             LOOP=$(( LOOP + 1 ))
@@ -698,25 +666,21 @@ print(json.dumps(obj))
 
             [ $(( LOOP % 9 )) -eq 0 ] && show_stats
 
-            # Backup périodique toutes les 5 min
             if [ $(( NOW - T_BACKUP )) -ge 300 ]; then
               backup "periodic" "0"
               T_BACKUP=$(date +%s)
             fi
 
-            # Git sync toutes les 15 min
             if [ $(( NOW - T_GIT )) -ge 900 ]; then
               git_sync
               T_GIT=$(date +%s)
             fi
 
-            # Avertissement redémarrage à ~337 min
             if [ "$ELAPSED" -ge 20220 ] && [ "$WARNED" -eq 0 ]; then
               WARNED=1
               warn_restart &
             fi
 
-            # Vérification vie du process MC
             if ! kill -0 "$MC_PID" 2>/dev/null; then
               if was_graceful; then
                 echo "=== /stop propre $(date '+%H:%M:%S') ==="
@@ -740,10 +704,11 @@ print(json.dumps(obj))
                 tail -40 "$MC_LOG" 2>/dev/null || true
                 CRASH_CAUSE="Cause inconnue"
                 grep -qiE "OutOfMemoryError" "$MC_LOG" 2>/dev/null \
-                  && CRASH_CAUSE="OutOfMemoryError" && echo "CAUSE: OOM"
+                  && CRASH_CAUSE="OutOfMemoryError" \
+                  && echo "CAUSE: OOM" || true
                 grep -qiE "StackOverflowError" "$MC_LOG" 2>/dev/null \
                   && CRASH_CAUSE="StackOverflowError" \
-                  && echo "CAUSE: StackOverflow"
+                  && echo "CAUSE: StackOverflow" || true
 
                 discord 15158332 \
                   "Crash numero ${CRASHES}" \
@@ -772,7 +737,6 @@ print(json.dumps(obj))
               CRASHES=0
             fi
 
-            # Relance automatique à ~340 min
             if [ "$ELAPSED" -ge 20400 ]; then
               echo "[INFO] Relance automatique (${ELAPSED_MIN}min)"
               backup "pre-restart" "1"
