@@ -110,6 +110,9 @@ jobs:
 
           command -v zstd >/dev/null 2>&1 || sudo apt-get install -y -qq zstd
 
+          pip install -q discord.py aiohttp 2>/dev/null || \
+            pip3 install -q discord.py aiohttp 2>/dev/null || true
+
           RAM_MB=$(awk '/MemTotal/{print int($2/1024)}' /proc/meminfo)
           echo "=============================="
           echo "  OS   : $(uname -r)"
@@ -236,128 +239,40 @@ jobs:
           done
           grep -iE "tunnel|address|connect" playit.log 2>/dev/null | head -5 || true
 
-      - name: Ecrire scripts Python
+      - name: Discord Bot
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_GUILD_ID:  ${{ secrets.DISCORD_GUILD_ID }}
+          DISCORD_CHANNEL_ID: ${{ secrets.DISCORD_CHANNEL_ID }}
+          GITHUB_PAT:        ${{ secrets.FINE_GRAINED_PAT }}
+          GITHUB_REPO:       ${{ github.repository }}
+          MC_EVENT_PIPE:     /tmp/mc_events.jsonl
         run: |
-          cat > /tmp/discord_send.py << 'PYEOF'
-          #!/usr/bin/env python3
-          import sys, json, os
-          import urllib.request, urllib.error
+          python3 discord_bot.py > /tmp/bot.log 2>&1 &
+          BOT_PID=$!
+          echo "Bot PID=${BOT_PID}"
+          echo "$BOT_PID" > /tmp/bot.pid
 
-          def send(msg):
-              webhook = os.environ.get("DISCORD_WEBHOOK", "").strip()
-              if not webhook:
-                  print("[Discord] Pas de webhook configure", flush=True)
-                  return
-              payload = json.dumps({"content": msg}).encode("utf-8")
-              req = urllib.request.Request(
-                  webhook,
-                  data=payload,
-                  headers={"Content-Type": "application/json"},
-                  method="POST"
-              )
-              try:
-                  with urllib.request.urlopen(req, timeout=10) as r:
-                      pass
-                  print(f"[Discord] OK: {msg[:60]}", flush=True)
-              except urllib.error.HTTPError as e:
-                  body = e.read().decode("utf-8", errors="replace")
-                  print(f"[Discord] HTTP {e.code}: {body}", flush=True)
-              except Exception as e:
-                  print(f"[Discord] Erreur: {e}", flush=True)
-
-          if __name__ == "__main__":
-              if len(sys.argv) >= 2:
-                  send(" ".join(sys.argv[1:]))
-          PYEOF
-          chmod +x /tmp/discord_send.py
-
-          cat > /tmp/discord_watcher.py << 'PYEOF'
-          #!/usr/bin/env python3
-          import sys, os, time, re, json
-          import urllib.request, urllib.error
-
-          MC_LOG  = sys.argv[1] if len(sys.argv) > 1 else "mc.log"
-          WEBHOOK = os.environ.get("DISCORD_WEBHOOK", "").strip()
-
-          def send(msg):
-              if not WEBHOOK:
-                  return
-              payload = json.dumps({"content": msg}).encode("utf-8")
-              req = urllib.request.Request(
-                  WEBHOOK,
-                  data=payload,
-                  headers={"Content-Type": "application/json"},
-                  method="POST"
-              )
-              try:
-                  with urllib.request.urlopen(req, timeout=10) as r:
-                      pass
-              except urllib.error.HTTPError as e:
-                  body = e.read().decode("utf-8", errors="replace")
-                  print(f"[Discord] HTTP {e.code}: {body}", flush=True)
-              except Exception as e:
-                  print(f"[Discord] Erreur: {e}", flush=True)
-
-          waited = 0
-          while not os.path.isfile(MC_LOG):
-              time.sleep(1)
-              waited += 1
-              if waited > 120:
-                  sys.exit(0)
-
-          print(f"[Discord Watcher] Surveillance de {MC_LOG}", flush=True)
-
-          RE_JOIN  = re.compile(r'INFO\]:\s+(\w+)\[/.+\]\s+logged in with entity id')
-          RE_QUIT  = re.compile(r'INFO\]:\s+(\w+)\s+lost connection:')
-          RE_CHAT  = re.compile(r'INFO\]:\s+<(\w+)>\s+(.*)')
-          RE_DEATH = re.compile(
-              r'INFO\]:\s+(.+?(?:was slain|drowned|fell from|burnt|'
-              r'starved|suffocated|killed by|hit the ground|blew up).*)',
-              re.IGNORECASE
-          )
-
-          with open(MC_LOG, "r", errors="replace") as f:
-              f.seek(0, 2)
-              while True:
-                  line = f.readline()
-                  if not line:
-                      time.sleep(0.2)
-                      continue
-                  line = line.rstrip()
-
-                  m = RE_JOIN.search(line)
-                  if m:
-                      player = m.group(1)
-                      send(f"**{player}** a rejoint le serveur")
-                      continue
-
-                  m = RE_QUIT.search(line)
-                  if m:
-                      player = m.group(1)
-                      send(f"**{player}** a quitte le serveur")
-                      continue
-
-                  m = RE_CHAT.search(line)
-                  if m:
-                      player = m.group(1)
-                      text   = m.group(2)
-                      send(f"**{player}** {text}")
-                      continue
-
-                  m = RE_DEATH.search(line)
-                  if m:
-                      death = m.group(1)
-                      send(f"**{death}**")
-                      continue
-          PYEOF
-          chmod +x /tmp/discord_watcher.py
+          for i in $(seq 1 20); do
+            sleep 1
+            if grep -q "Bot Connecte\|Bot prêt\|on_ready" /tmp/bot.log 2>/dev/null; then
+              echo "Bot Discord connecte en ${i}s"
+              break
+            fi
+            if ! kill -0 "$BOT_PID" 2>/dev/null; then
+              echo "Bot mort au demarrage:"
+              cat /tmp/bot.log
+              break
+            fi
+          done
+          cat /tmp/bot.log || true
 
       - name: Minecraft
         env:
-          FINE_GRAINED_PAT: ${{ secrets.FINE_GRAINED_PAT }}
-          REPO:             ${{ github.repository }}
-          RUN_ID:           ${{ github.run_id }}
-          DISCORD_WEBHOOK:  ${{ secrets.DISCORD_WEBHOOK }}
+          FINE_GRAINED_PAT:   ${{ secrets.FINE_GRAINED_PAT }}
+          REPO:               ${{ github.repository }}
+          RUN_ID:             ${{ github.run_id }}
+          MC_EVENT_PIPE:      /tmp/mc_events.jsonl
         run: |
           JAVA="/usr/lib/jvm/temurin-21-jdk-amd64/bin/java"
           MC_LOG="mc.log"
@@ -365,6 +280,7 @@ jobs:
           STATS_FILE="/tmp/mc_stats.txt"
           WORLD_REF="/tmp/world_ref.txt"
           STOPPED_CLEANLY="/tmp/mc_stopped_cleanly"
+          EVENT_PIPE="/tmp/mc_events.jsonl"
 
           rm -f "$MC_PIPE" "$STOPPED_CLEANLY"
           mkfifo "$MC_PIPE"
@@ -384,9 +300,9 @@ jobs:
             printf '%s\n' "$*" > "$MC_PIPE" 2>/dev/null || true
           }
 
-          discord() {
-            DISCORD_WEBHOOK="$DISCORD_WEBHOOK" \
-              python3 /tmp/discord_send.py "$*" 2>/dev/null || true
+          emit_event() {
+            local json="$1"
+            echo "$json" >> "$EVENT_PIPE" 2>/dev/null || true
           }
 
           gh_cancel() {
@@ -639,10 +555,10 @@ jobs:
           monitor_loop & MONITOR_PID=$!
           live_logs    & LIVE_PID=$!
 
-          DISCORD_WEBHOOK="$DISCORD_WEBHOOK" \
-            python3 /tmp/discord_watcher.py "$MC_LOG" & DISCORD_PID=$!
+          MC_EVENT_PIPE="$EVENT_PIPE" \
+            python3 discord_watcher.py "$MC_LOG" > /tmp/watcher.log 2>&1 & WATCHER_PID=$!
 
-          discord ":white_check_mark: Le serveur est en ligne !"
+          emit_event "{\"type\":\"start\",\"jvm\":\"${JVM}\",\"cpus\":\"${CPUS}\"}"
 
           while true; do
             sleep 20
@@ -674,8 +590,9 @@ jobs:
                 show_stats
                 backup "graceful-stop" "1"
                 git_sync
-                discord ":octagonal_sign: Le serveur est arrete."
-                kill "$MONITOR_PID" "$LIVE_PID" "$DISCORD_PID" 2>/dev/null || true
+                emit_event '{"type":"stop"}'
+                sleep 3
+                kill "$MONITOR_PID" "$LIVE_PID" "$WATCHER_PID" 2>/dev/null || true
                 echo "GRACEFUL" > "$STOPPED_CLEANLY"
                 sleep 10
                 gh_cancel
@@ -687,7 +604,7 @@ jobs:
                 show_stats
                 tail -40 "$MC_LOG" 2>/dev/null || true
 
-                CRASH_CAUSE="Cause inconnue"
+                CRASH_CAUSE="Inconnue"
                 if grep -qiE "OutOfMemoryError" "$MC_LOG" 2>/dev/null; then
                   CRASH_CAUSE="OutOfMemoryError"
                   echo "CAUSE: OOM"
@@ -697,14 +614,15 @@ jobs:
                   echo "CAUSE: StackOverflow"
                 fi
 
-                discord ":red_circle: Le serveur a crashe (${CRASH_CAUSE}). Redemarrage..."
+                emit_event "{\"type\":\"crash\",\"count\":${CRASHES},\"cause\":\"${CRASH_CAUSE}\"}"
 
                 if [ "$CRASHES" -ge 5 ]; then
                   echo "[FATAL] 5 crashs consecutifs"
                   backup "crash-fatal" "1"
                   git_sync
-                  discord ":skull: Crash fatal - 5 crashs consecutifs. Arret definitif."
-                  kill "$MONITOR_PID" "$LIVE_PID" "$DISCORD_PID" 2>/dev/null || true
+                  emit_event '{"type":"crash_fatal"}'
+                  sleep 3
+                  kill "$MONITOR_PID" "$LIVE_PID" "$WATCHER_PID" 2>/dev/null || true
                   exit 1
                 fi
 
@@ -723,8 +641,9 @@ jobs:
               echo "[INFO] Relance automatique (${ELAPSED_MIN}min)"
               backup "pre-restart" "1"
               git_sync
-              discord ":arrows_counterclockwise: Redemarrage automatique apres ${ELAPSED_MIN} minutes."
-              kill "$MONITOR_PID" "$LIVE_PID" "$DISCORD_PID" 2>/dev/null || true
+              emit_event "{\"type\":\"restart\",\"minutes\":\"${ELAPSED_MIN}\"}"
+              sleep 3
+              kill "$MONITOR_PID" "$LIVE_PID" "$WATCHER_PID" 2>/dev/null || true
               gh_dispatch
               sleep 5
               mc_cmd "say §c[Serveur] Redemarrage automatique..."
