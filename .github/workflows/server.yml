@@ -35,6 +35,7 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Bloquer apt/unattended-upgrades pour eviter les ralentissements
           sudo systemctl stop unattended-upgrades apt-daily \
             apt-daily-upgrade 2>/dev/null || true
           sudo systemctl disable unattended-upgrades apt-daily \
@@ -42,6 +43,7 @@ jobs:
           sudo pkill -f unattended-upgrades 2>/dev/null || true
           sudo ln -sf /bin/true /usr/bin/mandb 2>/dev/null || true
 
+          # rclone
           curl -fsSL \
             "https://downloads.rclone.org/rclone-current-linux-amd64.zip" \
             -o /tmp/rclone.zip
@@ -55,6 +57,7 @@ jobs:
             > ~/.config/rclone/rclone.conf
           chmod 600 ~/.config/rclone/rclone.conf
 
+          # Optimisations noyau réseau / mémoire
           sudo sysctl -w \
             net.core.rmem_max=134217728 \
             net.core.wmem_max=134217728 \
@@ -113,6 +116,7 @@ jobs:
           ulimit -n 1048576 2>/dev/null || true
           ulimit -s unlimited 2>/dev/null || true
 
+          # Swap 8G
           if ! swapon --show | grep -q /swapfile 2>/dev/null; then
             sudo fallocate -l 8G /swapfile 2>/dev/null || \
               sudo dd if=/dev/zero of=/swapfile bs=1M count=8192 \
@@ -123,6 +127,7 @@ jobs:
             echo "Swap 8G active"
           fi
 
+          # Java 21 Temurin
           JAVA_BIN="/usr/lib/jvm/temurin-21-jdk-amd64/bin/java"
           if [ ! -f "$JAVA_BIN" ]; then
             wget -qO - \
@@ -212,9 +217,17 @@ jobs:
           fi
 
           if [ ! -f server.jar ]; then
-            echo "Telechargement Paper 1.21.10..."
+            echo "Telechargement Paper 1.21.4..."
             wget -q -O server.jar \
-              "https://api.papermc.io/v2/projects/paper/versions/1.21.10/builds/129/downloads/paper-1.21.10-129.jar"
+              "https://api.papermc.io/v2/projects/paper/versions/1.21.4/builds/$(
+                curl -s https://api.papermc.io/v2/projects/paper/versions/1.21.4/builds \
+                | python3 -c "import sys,json; builds=json.load(sys.stdin)['builds']; print(builds[-1]['build'])"
+              )/downloads/paper-1.21.4-$(
+                curl -s https://api.papermc.io/v2/projects/paper/versions/1.21.4/builds \
+                | python3 -c "import sys,json; builds=json.load(sys.stdin)['builds']; b=builds[-1]; print(b['build'])"
+              ).jar" 2>/dev/null \
+            || wget -q -O server.jar \
+              "https://api.papermc.io/v2/projects/paper/versions/1.21.4/builds/225/downloads/paper-1.21.4-225.jar"
             echo "Paper telecharge ($(du -sh server.jar | cut -f1))"
             rclone copy server.jar rclone-mc:mc-backup/ \
               --transfers=4 --retries=3 2>/dev/null &
@@ -223,86 +236,10 @@ jobs:
 
           echo "eula=true" > eula.txt
 
-      - name: Mise a jour plugins
-        run: |
-          set -uo pipefail
-          mkdir -p plugins
-
-          dl_plugin() {
-            local name="$1"
-            local url="$2"
-            local dest="plugins/${name}"
-            local tmp="${dest}.tmp"
-
-            echo "  >> ${name}..."
-            if wget -q --timeout=45 -O "$tmp" "$url" 2>/dev/null; then
-              local SIZE
-              SIZE=$(stat -c%s "$tmp" 2>/dev/null || echo 0)
-              if [ "$SIZE" -gt 10000 ]; then
-                mv -f "$tmp" "$dest"
-                echo "     OK ($(du -sh "$dest" | cut -f1))"
-                return 0
-              else
-                rm -f "$tmp"
-                echo "     ECHEC: fichier trop petit (${SIZE}B)"
-                return 1
-              fi
-            else
-              rm -f "$tmp"
-              echo "     ECHEC: download error"
-              return 1
-            fi
-          }
-
-          # ── ViaVersion 5.9.0 ───────────────────────────────────────
-          if ! ls plugins/ViaVersion-5.9.0*.jar \
-              >/dev/null 2>&1; then
-            rm -f plugins/ViaVersion-*.jar
-            dl_plugin "ViaVersion-5.9.0.jar" \
-              "https://hangar.papermc.io/api/v1/projects/ViaVersion/versions/5.9.0/PAPER/download" \
-            || dl_plugin "ViaVersion-5.9.0.jar" \
-              "https://github.com/ViaVersion/ViaVersion/releases/download/5.9.0/ViaVersion-5.9.0.jar"
-          else
-            echo "  ViaVersion 5.9.0 deja present"
-          fi
-
-          # ── EssentialsX 2.21.3 ─────────────────────────────────────
-          if ! ls plugins/EssentialsX-2.21.3*.jar \
-              >/dev/null 2>&1; then
-            rm -f plugins/EssentialsX-*.jar
-            dl_plugin "EssentialsX-2.21.3.jar" \
-              "https://github.com/EssentialsX/Essentials/releases/download/2.21.3/EssentialsX-2.21.3.jar"
-          else
-            echo "  EssentialsX 2.21.3 deja present"
-          fi
-
-          # ── CustomNPCs 1.7.9 ───────────────────────────────────────
-          if ! ls plugins/customnpcs-1.7.9*.jar \
-              >/dev/null 2>&1; then
-            rm -f plugins/customnpcs-*.jar
-            dl_plugin "customnpcs-1.7.9.jar" \
-              "https://github.com/Foxikle/CustomNPCs/releases/download/1.7.9/customnpcs-1.7.9.jar"
-          else
-            echo "  CustomNPCs 1.7.9 deja present"
-          fi
-
-          # ── HeadDatabase 4.23.0 ────────────────────────────────────
-          if ! ls plugins/HeadDatabase-4.23.0*.jar \
-              >/dev/null 2>&1; then
-            rm -f plugins/HeadDatabase-*.jar
-            dl_plugin "HeadDatabase-4.23.0.jar" \
-              "https://www.spigotmc.org/resources/head-database.14280/download?version=latest" \
-            || echo "  HeadDatabase: telechargement manuel requis"
-          else
-            echo "  HeadDatabase 4.23.0 deja present"
-          fi
-
-          echo ""
-          echo "=== Plugins installes ==="
-          find plugins -maxdepth 1 -name "*.jar" \
-            | sort | while read -r f; do
-              echo "  $(basename "$f") ($(du -sh "$f" | cut -f1))"
-            done
+      # ──────────────────────────────────────────────────────────────────
+      # PAS de step "Mise a jour plugins" — les JARs viennent du repo
+      # et du backup Drive uniquement. Zero telechargement de plugins.
+      # ──────────────────────────────────────────────────────────────────
 
       - name: Appliquer repo
         run: |
@@ -315,21 +252,11 @@ jobs:
             [ -z "$jar" ] && continue
             name="$(basename "$jar")"
             case "$name" in server.jar|playit*) continue ;; esac
-            # Ne pas ecraser les plugins mis a jour
-            case "$name" in
-              ViaVersion-5.9.0.jar|\
-              EssentialsX-2.21.3.jar|\
-              customnpcs-1.7.9.jar|\
-              HeadDatabase-4.23.0.jar)
-                echo "  SKIP (version plus recente presente): ${name}"
-                continue
-                ;;
-            esac
             cp -f "$jar" "plugins/${name}"
             JARS=$(( JARS + 1 ))
           done < <(find /tmp/repo-snapshot -maxdepth 1 -name "*.jar" \
             ! -name "server.jar" ! -name "playit*" 2>/dev/null)
-          echo "  JARs copies: ${JARS}"
+          echo "  JARs repo copies: ${JARS}"
 
           CFGS=0
           while IFS= read -r src; do
@@ -350,6 +277,12 @@ jobs:
 
           echo "  Fichiers appliques: ${CFGS}"
           echo "eula=true" > eula.txt
+
+          echo "=== Plugins presents ==="
+          find plugins -maxdepth 1 -name "*.jar" | sort \
+            | while read -r f; do
+              echo "  $(basename "$f") ($(du -sh "$f" | cut -f1))"
+            done
           echo "=== Repo applique ==="
 
       - name: Playit
@@ -695,15 +628,12 @@ jobs:
               -Djava.net.preferIPv4Stack=true \
               -Dfile.encoding=UTF-8 \
               -Daikars.new.flags=true \
-              -Dcom.fastasyncworldedit.fawe.parallel=true \
-              -Dcom.fastasyncworldedit.fawe.target-size=8192 \
-              -Dcom.fastasyncworldedit.fawe.compressed-ops=true \
               -jar server.jar nogui \
               >> "$MC_LOG" 2>&1 &
             echo $!
           }
 
-          # ── Demarrage Bot Discord ─────────────────────────────────────
+          # ── Bot Discord ───────────────────────────────────────────────
           python3 discord_bot/bot.py > /tmp/bot.log 2>&1 &
           BOT_PID=$!
           echo "Bot PID=${BOT_PID}"
@@ -760,25 +690,25 @@ jobs:
               echo "[BOT] Nouveau PID=${BOT_PID}"
             fi
 
-            # Backup periodique
+            # Backup periodique toutes les 5 min
             if [ $(( NOW - T_BACKUP )) -ge 300 ]; then
               backup "periodic" "0"
               T_BACKUP=$(date +%s)
             fi
 
-            # Git sync
+            # Git sync toutes les 15 min
             if [ $(( NOW - T_GIT )) -ge 900 ]; then
               git_sync
               T_GIT=$(date +%s)
             fi
 
-            # Avertissement redemarrage
+            # Avertissement redemarrage ~337 min
             if [ "$ELAPSED" -ge 20220 ] && [ "$WARNED" -eq 0 ]; then
               WARNED=1
               warn_restart &
             fi
 
-            # Verifier MC
+            # Verifier MC vivant
             if ! kill -0 "$MC_PID" 2>/dev/null; then
               if was_graceful; then
                 echo "=== /stop propre $(date '+%H:%M:%S') ==="
@@ -816,7 +746,7 @@ jobs:
                   "{\"type\":\"crash\",\"count\":${CRASHES},\"cause\":\"${CRASH_CAUSE}\"}"
 
                 if [ "$CRASHES" -ge 5 ]; then
-                  echo "[FATAL] 5 crashs"
+                  echo "[FATAL] 5 crashs consecutifs"
                   backup "crash-fatal" "1"
                   git_sync
                   emit_event '{"type":"crash_fatal"}'
@@ -837,7 +767,7 @@ jobs:
               CRASHES=0
             fi
 
-            # Relance auto ~340 min
+            # Relance automatique ~340 min
             if [ "$ELAPSED" -ge 20400 ]; then
               echo "[INFO] Relance automatique (${ELAPSED_MIN}min)"
               backup "pre-restart" "1"
