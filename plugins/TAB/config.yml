@@ -1,5 +1,6 @@
 # ══════════════════════════════════════════════════════
 #  TAB — Build Server — DA Médiévale/Arcane
+#  Fix: %online% et %maxplayers% (placeholders corrects)
 # ══════════════════════════════════════════════════════
 
 header-footer:
@@ -15,7 +16,7 @@ header-footer:
         - ''
         - '<dark_gray>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</dark_gray>'
         - '<gray>🕐 <white>%time%  <dark_gray>|  <gray>📡 <white>%ping%ms  <dark_gray>|  <gray>🌍 <white>%world%'
-        - '<gray>👥 <white>%online%<gray>/<white>%max% joueurs  <dark_gray>|  <gray>⚙ TPS <white>%tps%'
+        - '<gray>👥 <white>%online%<gray>/<white>%maxplayers% joueurs'
         - '<dark_gray>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</dark_gray>'
         - ''
 
@@ -81,7 +82,7 @@ placeholder-refresh-intervals:
   '%ping%': 500
   '%world%': 1000
   '%online%': 2000
-  '%tps%': 2000
+  '%maxplayers%': 60000
 
 assign-groups-by-permissions: false
 
