@@ -1,11 +1,8 @@
-#Owner:
-#  tabprefix: "&0&l[&a&lOwner&0&l] &a"
-#  tagprefix: "&2&lOwner &a"
-Player:
-  tabprefix: "&0&l[&7&lPlayer&0&l] &3"
-  tagprefix: "&2&lPlayer &3"
+# ══════════════════════════════════════════════════════
+#  Groupes TAB — DA Médiévale/Arcane
+#  Les préfixes correspondent aux rôles Discord WM
+# ══════════════════════════════════════════════════════
 
- # default settings for all groups, all groups will take properties from this section unless player's primary group overrides a specific setting
 _DEFAULT_:
   tabprefix: "%luckperms-prefix%"
   tagprefix: "%luckperms-prefix%"
@@ -13,8 +10,79 @@ _DEFAULT_:
   tabsuffix: "%luckperms-suffix%"
   tagsuffix: "%luckperms-suffix%"
 
-per-world:
-  world1:
-    Owner:
-      tabprefix: "&0&l[&a&lOwner&0&l] &a"
-      tagprefix: "&2&lOwner &a"
+# ── Rôles Prestige ────────────────────────────────────
+Magnate:
+  tabprefix: "<color:#C9A84C>👑 Magnate </color><dark_gray>│ <white>"
+  tagprefix: "<color:#C9A84C>👑</color> "
+  tagsuffix: " <dark_gray>✦"
+
+Benefactor:
+  tabprefix: "<color:#8B5CF6>🔮 Benefactor </color><dark_gray>│ <white>"
+  tagprefix: "<color:#8B5CF6>🔮</color> "
+  tagsuffix: " <dark_gray>✦"
+
+Patron:
+  tabprefix: "<color:#00B4D8>💎 Patron </color><dark_gray>│ <white>"
+  tagprefix: "<color:#00B4D8>💎</color> "
+  tagsuffix: " <dark_gray>✦"
+
+# ── Rôles Élite ───────────────────────────────────────
+Grandmaster:
+  tabprefix: "<color:#C87A08>☩ Grandmaster </color><dark_gray>│ <white>"
+  tagprefix: "<color:#C87A08>☩</color> "
+  tagsuffix: " <dark_gray>☩"
+
+Mantled:
+  tabprefix: "<color:#888888>🌑 Mantled </color><dark_gray>│ <white>"
+  tagprefix: "<color:#888888>🌑</color> "
+
+Lightkeeper:
+  tabprefix: "<color:#D4A853>🕯 Lightkeeper </color><dark_gray>│ <white>"
+  tagprefix: "<color:#D4A853>🕯</color> "
+
+# ── Rôles Craft ───────────────────────────────────────
+Contractor:
+  tabprefix: "<color:#A0845C>🪙 Contractor </color><dark_gray>│ <white>"
+  tagprefix: "<color:#A0845C>🪙</color> "
+
+Stonecutter:
+  tabprefix: "<color:#7A7A7A>🪨 Stonecutter </color><dark_gray>│ <white>"
+  tagprefix: "<color:#7A7A7A>🪨</color> "
+
+Artificer:
+  tabprefix: "<color:#5B8DB8>⚙ Artificer </color><dark_gray>│ <white>"
+  tagprefix: "<color:#5B8DB8>⚙</color> "
+
+Illuminator:
+  tabprefix: "<color:#9B72CF>🖋 Illuminator </color><dark_gray>│ <white>"
+  tagprefix: "<color:#9B72CF>🖋</color> "
+
+Sculptor:
+  tabprefix: "<color:#A0714F>🗿 Sculptor </color><dark_gray>│ <white>"
+  tagprefix: "<color:#A0714F>🗿</color> "
+
+# ── Rôles Standards ───────────────────────────────────
+Initiate:
+  tabprefix: "<color:#6B5A3E>🕯 Initiate </color><dark_gray>│ <white>"
+  tagprefix: "<color:#6B5A3E>🕯</color> "
+
+Ally:
+  tabprefix: "<color:#2E8B57>🤝 Ally </color><dark_gray>│ <white>"
+  tagprefix: "<color:#2E8B57>🤝</color> "
+
+Wanderer:
+  tabprefix: "<color:#4A7C59>🌿 Wanderer </color><dark_gray>│ <white>"
+  tagprefix: "<color:#4A7C59>🌿</color> "
+
+Outsider:
+  tabprefix: "<color:#555555>🚪 Outsider </color><dark_gray>│ <white>"
+  tagprefix: "<color:#555555>🚪</color> "
+
+Construct:
+  tabprefix: "<color:#2C3E50>⚙ Construct </color><dark_gray>│ <white>"
+  tagprefix: "<color:#2C3E50>⚙</color> "
+
+# ── Joueur sans rôle WM ───────────────────────────────
+Player:
+  tabprefix: "<dark_gray>▪ <gray>"
+  tagprefix: "<gray>"
