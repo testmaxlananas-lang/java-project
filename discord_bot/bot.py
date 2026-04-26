@@ -11,65 +11,66 @@ GUILD      = int(os.environ["DISCORD_GUILD_ID"])
 CHANNEL    = int(os.environ["DISCORD_CHANNEL_ID"])
 PAT        = os.environ["GITHUB_PAT"]
 REPO       = os.environ["GITHUB_REPO"]
-EVENT_PIPE = os.environ.get("MC_EVENT_PIPE", "/tmp/mc_events.jsonl")
+EVENT_FILE = os.environ.get("MC_EVENT_FILE", "/tmp/mc_events.jsonl")
 
-intents         = discord.Intents.default()
+intents                 = discord.Intents.default()
 intents.message_content = True
-bot             = commands.Bot(command_prefix="!", intents=intents)
-tree            = bot.tree
+bot                     = commands.Bot(command_prefix="!", intents=intents)
+tree                    = bot.tree
 
-# ── File d'attente des messages Discord ──────────────────────────────────────
 msg_queue: asyncio.Queue = asyncio.Queue()
 
-# ── Lecture du pipe d'events MC ─────────────────────────────────────────────
-async def pipe_reader():
-    """
-    Lit /tmp/mc_events.jsonl en continu.
-    Chaque ligne = un JSON  {"type": "chat", "player": "...", "text": "..."}
-    """
-    loop = asyncio.get_event_loop()
 
-    # Créer le pipe s'il n'existe pas
-    if not os.path.exists(EVENT_PIPE):
+async def event_reader():
+    """Lit EVENT_FILE en continu depuis la fin."""
+    loop   = asyncio.get_event_loop()
+    waited = 0
+
+    # Attendre que le fichier existe
+    while not os.path.isfile(EVENT_FILE):
+        await asyncio.sleep(1)
+        waited += 1
+        if waited > 120:
+            print("[Bot] Timeout attente fichier events", flush=True)
+            return
+
+    print(f"[Bot] Lecture events: {EVENT_FILE}", flush=True)
+
+    def read_lines(pos):
+        lines = []
         try:
-            os.mkfifo(EVENT_PIPE)
-        except FileExistsError:
-            pass
+            with open(EVENT_FILE, "r", errors="replace") as f:
+                f.seek(pos)
+                for line in f:
+                    lines.append(line.rstrip())
+                new_pos = f.tell()
+        except Exception:
+            new_pos = pos
+        return lines, new_pos
 
-    print(f"[Bot] Lecture pipe: {EVENT_PIPE}", flush=True)
+    pos = os.path.getsize(EVENT_FILE) if os.path.isfile(EVENT_FILE) else 0
 
     while True:
+        await asyncio.sleep(0.3)
         try:
-            # Ouvrir en mode non-bloquant
-            fd = await loop.run_in_executor(
-                None,
-                lambda: open(EVENT_PIPE, "r", errors="replace")
-            )
-            async for raw in async_lines(fd, loop):
-                raw = raw.strip()
-                if not raw:
-                    continue
-                try:
-                    ev = json.loads(raw)
-                except json.JSONDecodeError:
-                    continue
-                msg = format_event(ev)
-                if msg:
-                    await msg_queue.put(msg)
-            fd.close()
-        except Exception as e:
-            print(f"[Bot] Pipe erreur: {e}", flush=True)
-            await asyncio.sleep(2)
-
-
-async def async_lines(f, loop):
-    """Générateur asynchrone de lignes depuis un fichier."""
-    while True:
-        line = await loop.run_in_executor(None, f.readline)
-        if line:
-            yield line
-        else:
-            await asyncio.sleep(0.1)
+            size = os.path.getsize(EVENT_FILE)
+        except Exception:
+            continue
+        if size < pos:
+            pos = 0  # fichier tronqué / recréé
+        if size == pos:
+            continue
+        lines, pos = await loop.run_in_executor(None, read_lines, pos)
+        for raw in lines:
+            if not raw.strip():
+                continue
+            try:
+                ev = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            msg = format_event(ev)
+            if msg:
+                await msg_queue.put(msg)
 
 
 def format_event(ev: dict) -> str | None:
@@ -97,11 +98,11 @@ def format_event(ev: dict) -> str | None:
 
     if t == "join":
         player = ev.get("player", "?")
-        return f":arrow_right: **{player}** a rejoint le serveur."
+        return f"**{player}** a rejoint le serveur."
 
     if t == "quit":
         player = ev.get("player", "?")
-        return f":arrow_left: **{player}** a quitte le serveur."
+        return f"**{player}** a quitte le serveur."
 
     if t == "chat":
         player = ev.get("player", "?")
@@ -115,7 +116,6 @@ def format_event(ev: dict) -> str | None:
     return None
 
 
-# ── Envoi des messages en queue vers Discord ─────────────────────────────────
 @tasks.loop(seconds=0.5)
 async def flush_queue():
     channel = bot.get_channel(CHANNEL)
@@ -132,7 +132,6 @@ async def flush_queue():
             print(f"[Bot] Send erreur: {e}", flush=True)
 
 
-# ── Commandes slash ──────────────────────────────────────────────────────────
 @tree.command(
     name="restart",
     description="Relancer le serveur Minecraft",
@@ -140,8 +139,7 @@ async def flush_queue():
 )
 async def cmd_restart(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
-    url = (f"https://api.github.com/repos/{REPO}"
-           f"/actions/workflows/server.yml/dispatches")
+    url = f"https://api.github.com/repos/{REPO}/actions/workflows/server.yml/dispatches"
     headers = {
         "Authorization": f"token {PAT}",
         "Accept":        "application/vnd.github.v3+json"
@@ -163,9 +161,10 @@ async def cmd_restart(interaction: discord.Interaction):
 )
 async def cmd_status(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
-    url = (f"https://api.github.com/repos/{REPO}"
-           f"/actions/workflows/server.yml/runs"
-           f"?status=in_progress&per_page=1")
+    url = (
+        f"https://api.github.com/repos/{REPO}"
+        f"/actions/workflows/server.yml/runs?status=in_progress&per_page=1"
+    )
     headers = {
         "Authorization": f"token {PAT}",
         "Accept":        "application/vnd.github.v3+json"
@@ -175,8 +174,7 @@ async def cmd_status(interaction: discord.Interaction):
             data = await r.json()
             runs = data.get("workflow_runs", [])
             if runs:
-                run = runs[0]
-                ts  = run["created_at"][:16].replace("T", " ")
+                ts = runs[0]["created_at"][:16].replace("T", " ")
                 await interaction.followup.send(
                     f":green_circle: **En ligne** depuis `{ts} UTC`",
                     ephemeral=True)
@@ -185,13 +183,12 @@ async def cmd_status(interaction: discord.Interaction):
                     ":red_circle: **Hors ligne**", ephemeral=True)
 
 
-# ── Events bot ───────────────────────────────────────────────────────────────
 @bot.event
 async def on_ready():
     await tree.sync(guild=discord.Object(id=GUILD))
     print(f"[Bot] Connecte: {bot.user}", flush=True)
     flush_queue.start()
-    asyncio.create_task(pipe_reader())
+    asyncio.create_task(event_reader())
 
 
 bot.run(TOKEN)
