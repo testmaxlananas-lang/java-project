@@ -16,8 +16,23 @@ RE_JOIN = re.compile(
     r'INFO\]:\s+(\w+)\[/.+\]\s+logged in with entity id')
 RE_QUIT = re.compile(
     r'INFO\]:\s+(\w+)\s+lost connection:')
-RE_CHAT = re.compile(
+
+# Format vanilla : <Pseudo> message
+RE_CHAT_VANILLA = re.compile(
     r'INFO\]:\s+<(\w+)>\s+(.*)')
+
+# Format custom avec préfixe de rôle (emoji, texte, séparateur)
+# Ex: "☩ Grandmaster ・ MaxLananas > test"
+# Ex: "🌑 Mantled ・ Bob > hello"
+# Capture le pseudo (dernier mot avant " > ") et le message
+RE_CHAT_CUSTOM = re.compile(
+    r'INFO\]:\s+.+?[・•\|]\s*(\w+)\s*[>\:]\s+(.*)')
+
+# Fallback encore plus large : mot avant " > message"
+# pour les formats sans séparateur unicode
+RE_CHAT_ARROW = re.compile(
+    r'INFO\]:\s+(?:\S+\s+)*?(\w+)\s+>\s+(.*)')
+
 RE_DEATH = re.compile(
     r'INFO\]:\s+(.+?(?:'
     r'was slain|drowned|fell from|was burnt|'
@@ -45,6 +60,35 @@ def emit(ev: dict) -> None:
         print(f"[Watcher] {line}", flush=True)
     except Exception as e:
         print(f"[Watcher] Erreur emit: {e}", flush=True)
+
+
+def try_parse_chat(line: str) -> dict | None:
+    """
+    Tente de détecter un message de chat dans plusieurs formats.
+    Retourne un dict {"player": ..., "text": ...} ou None.
+    """
+    # 1. Format vanilla <Pseudo> message
+    m = RE_CHAT_VANILLA.search(line)
+    if m:
+        return {"player": m.group(1), "text": m.group(2)}
+
+    # 2. Format custom avec séparateur ・ ou • ou |
+    #    Ex: "☩ Grandmaster ・ MaxLananas > test"
+    m = RE_CHAT_CUSTOM.search(line)
+    if m:
+        return {"player": m.group(1), "text": m.group(2)}
+
+    # 3. Fallback flèche simple "Pseudo > message"
+    #    (évite les faux positifs avec les logs système)
+    m = RE_CHAT_ARROW.search(line)
+    if m and not any(kw in line for kw in [
+        "logged in", "lost connection", "issued server command",
+        "has made", "has completed", "GameProfile", "UUID",
+        "Starting", "Stopping", "Loading", "Saving"
+    ]):
+        return {"player": m.group(1), "text": m.group(2)}
+
+    return None
 
 
 # ── Attente log ───────────────────────────────────────────────────────────────
@@ -82,17 +126,7 @@ with open(MC_LOG, "r", errors="replace") as f:
             emit({"type": "quit", "player": m.group(1)})
             continue
 
-        # Chat
-        m = RE_CHAT.search(line)
-        if m:
-            emit({
-                "type":   "chat",
-                "player": m.group(1),
-                "text":   m.group(2)
-            })
-            continue
-
-        # Mort
+        # Mort (avant chat pour éviter faux positifs)
         m = RE_DEATH.search(line)
         if m:
             emit({"type": "death", "text": m.group(1)})
@@ -116,4 +150,10 @@ with open(MC_LOG, "r", errors="replace") as f:
                 "player":    m.group(1),
                 "challenge": m.group(2)
             })
+            continue
+
+        # Chat (en dernier pour éviter les faux positifs)
+        chat = try_parse_chat(line)
+        if chat:
+            emit({"type": "chat", **chat})
             continue
