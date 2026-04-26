@@ -30,31 +30,24 @@ jobs:
           mkdir -p /tmp/repo-snapshot
           cp -r . /tmp/repo-snapshot/
           echo "Snapshot: $(find /tmp/repo-snapshot -type f | wc -l) fichiers"
-          echo "JARs: $(find /tmp/repo-snapshot -maxdepth 1 -name '*.jar' \
-            ! -name 'playit*' ! -name 'server.jar' | wc -l)"
 
       - name: Setup systeme
         run: |
           set -euo pipefail
 
-          sudo systemctl stop unattended-upgrades apt-daily \
-            apt-daily-upgrade 2>/dev/null || true
-          sudo systemctl disable unattended-upgrades apt-daily \
-            apt-daily-upgrade 2>/dev/null || true
+          sudo systemctl stop unattended-upgrades apt-daily apt-daily-upgrade 2>/dev/null || true
+          sudo systemctl disable unattended-upgrades apt-daily apt-daily-upgrade 2>/dev/null || true
           sudo pkill -f unattended-upgrades 2>/dev/null || true
           sudo ln -sf /bin/true /usr/bin/mandb 2>/dev/null || true
 
-          curl -fsSL \
-            "https://downloads.rclone.org/rclone-current-linux-amd64.zip" \
-            -o /tmp/rclone.zip
+          curl -fsSL "https://downloads.rclone.org/rclone-current-linux-amd64.zip" -o /tmp/rclone.zip
           unzip -jo /tmp/rclone.zip "*/rclone" -d /tmp/
           sudo mv /tmp/rclone /usr/local/bin/rclone
           sudo chmod +x /usr/local/bin/rclone
           rm /tmp/rclone.zip
 
           mkdir -p ~/.config/rclone
-          printf '%s' "${{ secrets.RCLONE_CONF_B64 }}" | base64 -d \
-            > ~/.config/rclone/rclone.conf
+          printf '%s' "${{ secrets.RCLONE_CONF_B64 }}" | base64 -d > ~/.config/rclone/rclone.conf
           chmod 600 ~/.config/rclone/rclone.conf
 
           sudo sysctl -w \
@@ -80,28 +73,23 @@ jobs:
             kernel.pid_max=4194304 \
             2>/dev/null || true
 
-          echo madvise | sudo tee \
-            /sys/kernel/mm/transparent_hugepage/enabled >/dev/null 2>&1 || true
-          echo defer+madvise | sudo tee \
-            /sys/kernel/mm/transparent_hugepage/defrag >/dev/null 2>&1 || true
+          echo madvise | sudo tee /sys/kernel/mm/transparent_hugepage/enabled >/dev/null 2>&1 || true
+          echo defer+madvise | sudo tee /sys/kernel/mm/transparent_hugepage/defrag >/dev/null 2>&1 || true
 
           for f in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
-            [ -f "$f" ] && echo performance | sudo tee "$f" \
-              >/dev/null 2>&1 || true
+            [ -f "$f" ] && echo performance | sudo tee "$f" >/dev/null 2>&1 || true
           done
 
           for dev in /sys/block/sda /sys/block/sdb /sys/block/nvme0n1; do
-            [ -f "${dev}/queue/scheduler" ] && echo "none" | sudo tee \
-              "${dev}/queue/scheduler" >/dev/null 2>&1 || true
-            [ -f "${dev}/queue/read_ahead_kb" ] && echo "4096" | sudo tee \
-              "${dev}/queue/read_ahead_kb" >/dev/null 2>&1 || true
+            [ -f "${dev}/queue/scheduler" ] && echo "none" | sudo tee "${dev}/queue/scheduler" >/dev/null 2>&1 || true
+            [ -f "${dev}/queue/read_ahead_kb" ] && echo "4096" | sudo tee "${dev}/queue/read_ahead_kb" >/dev/null 2>&1 || true
           done
 
           ulimit -n 1048576 2>/dev/null || true
 
           if ! swapon --show | grep -q /swapfile 2>/dev/null; then
-            [ ! -f /swapfile ] && sudo fallocate -l 6G /swapfile 2>/dev/null \
-              || sudo dd if=/dev/zero of=/swapfile bs=1M count=6144 status=none
+            [ ! -f /swapfile ] && sudo fallocate -l 6G /swapfile 2>/dev/null || \
+              sudo dd if=/dev/zero of=/swapfile bs=1M count=6144 status=none
             sudo chmod 600 /swapfile
             sudo mkswap /swapfile >/dev/null 2>&1 || true
             sudo swapon /swapfile 2>/dev/null || true
@@ -110,20 +98,17 @@ jobs:
 
           JAVA_BIN="/usr/lib/jvm/temurin-21-jdk-amd64/bin/java"
           if [ ! -f "$JAVA_BIN" ]; then
-            wget -qO - \
-              https://packages.adoptium.net/artifactory/api/gpg/key/public \
+            wget -qO - https://packages.adoptium.net/artifactory/api/gpg/key/public \
               | sudo gpg --dearmor \
               | sudo tee /etc/apt/trusted.gpg.d/adoptium.gpg >/dev/null
             . /etc/os-release
-            echo "deb https://packages.adoptium.net/artifactory/deb \
-              ${VERSION_CODENAME} main" \
+            echo "deb https://packages.adoptium.net/artifactory/deb ${VERSION_CODENAME} main" \
               | sudo tee /etc/apt/sources.list.d/adoptium.list
             sudo apt-get update -qq
             sudo apt-get install -y -qq temurin-21-jdk
           fi
 
-          command -v zstd >/dev/null 2>&1 \
-            || sudo apt-get install -y -qq zstd
+          command -v zstd >/dev/null 2>&1 || sudo apt-get install -y -qq zstd
 
           RAM_MB=$(awk '/MemTotal/{print int($2/1024)}' /proc/meminfo)
           echo "=============================="
@@ -158,13 +143,9 @@ jobs:
           if [ -f worlds.tar.zst ]; then
             SIZE=$(stat -c%s worlds.tar.zst 2>/dev/null || echo 0)
             if [ "$SIZE" -gt 1000 ]; then
-              echo "Extraction worlds ($(du -sh worlds.tar.zst | cut -f1))..."
+              echo "Extraction worlds..."
               zstd -d -T0 --stdout worlds.tar.zst | tar -x --ignore-zeros
-              echo "Worlds extraits:"
-              find . -maxdepth 1 -type d -name "*" | grep -v '^\.$' \
-                | while read -r d; do
-                  [ -f "$d/level.dat" ] && echo "  - $d"
-                done || true
+              echo "Worlds extraits"
             else
               echo "Archive corrompue, ignoree"
             fi
@@ -191,8 +172,7 @@ jobs:
             wget -q -O server.jar \
               "https://api.papermc.io/v2/projects/paper/versions/1.21.10/builds/129/downloads/paper-1.21.10-129.jar"
             echo "Paper telecharge ($(du -sh server.jar | cut -f1))"
-            rclone copy server.jar rclone-mc:mc-backup/ \
-              --transfers=4 --retries=3 2>/dev/null &
+            rclone copy server.jar rclone-mc:mc-backup/ --transfers=4 --retries=3 2>/dev/null &
             disown
           fi
 
@@ -201,7 +181,7 @@ jobs:
       - name: Appliquer repo
         run: |
           set -uo pipefail
-          echo "=== Application repo (priorite absolue) ==="
+          echo "=== Application repo ==="
 
           mkdir -p plugins
           JARS=0
@@ -223,20 +203,15 @@ jobs:
               ""| .git/*|*.tar.zst|*.tar.gz) continue ;;
             esac
             case "$rel" in
-              *.jar)
-                [ "$(dirname "$rel")" = "." ] && continue ;;
+              *.jar) [ "$(dirname "$rel")" = "." ] && continue ;;
             esac
             dst_dir="$(dirname "$rel")"
-            [ -n "$dst_dir" ] && [ "$dst_dir" != "." ] \
-              && mkdir -p "$dst_dir"
-            cp -f "$src" "$rel" 2>/dev/null \
-              && CFGS=$(( CFGS + 1 )) || true
+            [ -n "$dst_dir" ] && [ "$dst_dir" != "." ] && mkdir -p "$dst_dir"
+            cp -f "$src" "$rel" 2>/dev/null && CFGS=$(( CFGS + 1 )) || true
           done < <(find /tmp/repo-snapshot -type f)
 
           echo "  Fichiers appliques: ${CFGS}"
           echo "eula=true" > eula.txt
-          echo "  Plugins JARs final: \
-            $(find plugins -maxdepth 1 -name '*.jar' | wc -l)"
           echo "=== Repo applique ==="
 
       - name: Playit
@@ -244,14 +219,12 @@ jobs:
           chmod +x ./playit-linux-amd64
           printf '%s' '${{ secrets.PLAYIT_SECRET }}' > playit.toml
 
-          RUST_LOG=warn ./playit-linux-amd64 --secret_path playit.toml \
-            > playit.log 2>&1 &
+          RUST_LOG=warn ./playit-linux-amd64 --secret_path playit.toml > playit.log 2>&1 &
           PLAYIT_PID=$!
 
           for i in $(seq 1 30); do
             sleep 1
-            if grep -qiE "connected|tunnel|ready|online|agent" \
-                playit.log 2>/dev/null; then
+            if grep -qiE "connected|tunnel|ready|online|agent" playit.log 2>/dev/null; then
               echo "Playit connecte en ${i}s"
               break
             fi
@@ -261,8 +234,132 @@ jobs:
               break
             fi
           done
-          grep -iE "tunnel|address|connect" playit.log 2>/dev/null \
-            | head -5 || true
+          grep -iE "tunnel|address|connect" playit.log 2>/dev/null | head -5 || true
+
+      - name: Ecrire scripts Python
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          cat > /tmp/discord_send.py << 'PYEOF'
+          #!/usr/bin/env python3
+          import sys, json, urllib.request, urllib.error, os, datetime
+
+          def send(color, title, desc):
+              webhook = os.environ.get("DISCORD_WEBHOOK", "").strip()
+              if not webhook:
+                  return
+              ts = datetime.datetime.now().strftime("%H:%M:%S")
+              payload = json.dumps({
+                  "embeds": [{
+                      "title":       title,
+                      "description": desc,
+                      "color":       int(color),
+                      "footer":      {"text": ts}
+                  }]
+              }).encode("utf-8")
+              req = urllib.request.Request(
+                  webhook,
+                  data=payload,
+                  headers={"Content-Type": "application/json"},
+                  method="POST"
+              )
+              try:
+                  urllib.request.urlopen(req, timeout=10)
+              except Exception as e:
+                  print(f"[Discord] Erreur: {e}", file=sys.stderr)
+
+          if __name__ == "__main__":
+              if len(sys.argv) >= 4:
+                  send(sys.argv[1], sys.argv[2], sys.argv[3])
+          PYEOF
+          chmod +x /tmp/discord_send.py
+
+          cat > /tmp/discord_watcher.py << 'PYEOF'
+          #!/usr/bin/env python3
+          import sys, os, time, re, json
+          import urllib.request, urllib.error, datetime, subprocess
+
+          MC_LOG  = sys.argv[1] if len(sys.argv) > 1 else "mc.log"
+          WEBHOOK = os.environ.get("DISCORD_WEBHOOK", "").strip()
+
+          def send(color, title, desc):
+              if not WEBHOOK:
+                  return
+              ts = datetime.datetime.now().strftime("%H:%M:%S")
+              payload = json.dumps({
+                  "embeds": [{
+                      "title":       title,
+                      "description": desc,
+                      "color":       int(color),
+                      "footer":      {"text": ts}
+                  }]
+              }).encode("utf-8")
+              req = urllib.request.Request(
+                  WEBHOOK,
+                  data=payload,
+                  headers={"Content-Type": "application/json"},
+                  method="POST"
+              )
+              try:
+                  urllib.request.urlopen(req, timeout=10)
+              except Exception as e:
+                  print(f"[Discord] Erreur: {e}", file=sys.stderr)
+
+          # Attendre que le fichier existe
+          waited = 0
+          while not os.path.isfile(MC_LOG):
+              time.sleep(1)
+              waited += 1
+              if waited > 120:
+                  sys.exit(0)
+
+          print(f"[Discord Watcher] Surveillance de {MC_LOG}", flush=True)
+
+          RE_JOIN  = re.compile(r'INFO\]:\s+(\w+)\[.+\]\s+logged in with entity id')
+          RE_QUIT  = re.compile(r'INFO\]:\s+(\w+)\s+lost connection:')
+          RE_CHAT  = re.compile(r'INFO\]:\s+<(\w+)>\s+(.*)')
+          RE_DEATH = re.compile(
+              r'INFO\]:\s+(.+?(?:was slain|drowned|fell|burnt|starved|'
+              r'suffocated|killed by|hit the ground|blew up).*)',
+              re.IGNORECASE
+          )
+
+          with open(MC_LOG, "r", errors="replace") as f:
+              # Aller a la fin
+              f.seek(0, 2)
+              while True:
+                  line = f.readline()
+                  if not line:
+                      time.sleep(0.2)
+                      continue
+                  line = line.rstrip()
+
+                  m = RE_JOIN.search(line)
+                  if m:
+                      player = m.group(1)
+                      send(3066993, "Connexion", f"{player} a rejoint le serveur")
+                      continue
+
+                  m = RE_QUIT.search(line)
+                  if m:
+                      player = m.group(1)
+                      send(15158332, "Deconnexion", f"{player} a quitte le serveur")
+                      continue
+
+                  m = RE_CHAT.search(line)
+                  if m:
+                      player = m.group(1)
+                      text   = m.group(2)
+                      send(5793266, f"Chat - {player}", text)
+                      continue
+
+                  m = RE_DEATH.search(line)
+                  if m:
+                      death = m.group(1)
+                      send(10038562, "Mort", death)
+                      continue
+          PYEOF
+          chmod +x /tmp/discord_watcher.py
 
       - name: Minecraft
         env:
@@ -277,6 +374,7 @@ jobs:
           STATS_FILE="/tmp/mc_stats.txt"
           WORLD_REF="/tmp/world_ref.txt"
           STOPPED_CLEANLY="/tmp/mc_stopped_cleanly"
+          DISCORD_SEND="python3 /tmp/discord_send.py"
 
           rm -f "$MC_PIPE" "$STOPPED_CLEANLY"
           mkfifo "$MC_PIPE"
@@ -297,89 +395,7 @@ jobs:
           }
 
           discord() {
-            local color="$1"
-            local title="$2"
-            local desc="$3"
-            [ -z "${DISCORD_WEBHOOK:-}" ] && return 0
-            local ts
-            ts="$(date '+%H:%M:%S')"
-            local payload
-            payload=$(python3 -c "
-import json, sys
-title = sys.argv[1]
-desc  = sys.argv[2]
-color = int(sys.argv[3])
-ts    = sys.argv[4]
-obj = {
-  'embeds': [{
-    'title':       title,
-    'description': desc,
-    'color':       color,
-    'footer':      {'text': ts}
-  }]
-}
-print(json.dumps(obj))
-" "$title" "$desc" "$color" "$ts" 2>/dev/null) || return 0
-            curl -sf -X POST "$DISCORD_WEBHOOK" \
-              -H "Content-Type: application/json" \
-              -d "$payload" 2>/dev/null || true
-          }
-
-          discord_log_watcher() {
-            [ -z "${DISCORD_WEBHOOK:-}" ] && return 0
-            local waited=0
-            while [ ! -f "$MC_LOG" ]; do
-              sleep 1
-              waited=$(( waited + 1 ))
-              [ "$waited" -gt 60 ] && return 0
-            done
-
-            tail -n 0 -f "$MC_LOG" 2>/dev/null | \
-            while IFS= read -r LINE; do
-
-              if echo "$LINE" | grep -qF "logged in with entity id"; then
-                PLAYER=$(echo "$LINE" \
-                  | sed 's/.*INFO\]: //' \
-                  | grep -oP '^\w+' || true)
-                [ -z "$PLAYER" ] && PLAYER="Inconnu"
-                discord 3066993 \
-                  "Connexion" \
-                  "${PLAYER} a rejoint le serveur"
-              fi
-
-              if echo "$LINE" | grep -qF "lost connection:"; then
-                PLAYER=$(echo "$LINE" \
-                  | sed 's/.*INFO\]: //' \
-                  | grep -oP '^\w+' || true)
-                [ -z "$PLAYER" ] && PLAYER="Inconnu"
-                discord 15158332 \
-                  "Deconnexion" \
-                  "${PLAYER} a quitte le serveur"
-              fi
-
-              if echo "$LINE" | grep -qP 'INFO\]: <\w+>'; then
-                PLAYER=$(echo "$LINE" \
-                  | grep -oP '(?<=<)\w+(?=>)' || true)
-                TEXT=$(echo "$LINE" \
-                  | sed 's/.*<[^>]*> //' || true)
-                [ -z "$PLAYER" ] && PLAYER="?"
-                [ -z "$TEXT"   ] && TEXT="..."
-                discord 5793266 \
-                  "Chat - ${PLAYER}" \
-                  "${TEXT}"
-              fi
-
-              if echo "$LINE" | grep -qiP \
-                'INFO\]:.*\b(was slain|drowned|fell|burnt|starved|suffocated|killed by|hit the ground|blew up)\b'; then
-                DEATH=$(echo "$LINE" \
-                  | sed 's/.*INFO\]: //' || true)
-                [ -z "$DEATH" ] && DEATH="Un joueur est mort"
-                discord 10038562 \
-                  "Mort" \
-                  "${DEATH}"
-              fi
-
-            done
+            $DISCORD_SEND "$1" "$2" "$3" 2>/dev/null || true
           }
 
           gh_cancel() {
@@ -387,9 +403,7 @@ print(json.dumps(obj))
               -H "Authorization: token ${FINE_GRAINED_PAT}" \
               -H "Accept: application/vnd.github.v3+json" \
               "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/cancel" \
-              >/dev/null \
-              && echo "[GH] Annule" \
-              || echo "[GH] Echec annulation"
+              >/dev/null && echo "[GH] Annule" || echo "[GH] Echec annulation"
           }
 
           gh_dispatch() {
@@ -398,9 +412,7 @@ print(json.dumps(obj))
               -H "Accept: application/vnd.github.v3+json" \
               "https://api.github.com/repos/${REPO}/actions/workflows/server.yml/dispatches" \
               -d '{"ref":"main"}' \
-              >/dev/null \
-              && echo "[GH] Dispatch OK" \
-              || echo "[GH] Echec dispatch"
+              >/dev/null && echo "[GH] Dispatch OK" || echo "[GH] Echec dispatch"
           }
 
           get_world_dirs() {
@@ -420,17 +432,14 @@ print(json.dumps(obj))
             local DIRS="$1"
             [ -z "$DIRS" ] && echo "0" && return
             # shellcheck disable=SC2086
-            find $DIRS -name "*.mca" -newer "$WORLD_REF" \
-              2>/dev/null | wc -l
+            find $DIRS -name "*.mca" -newer "$WORLD_REF" 2>/dev/null | wc -l
           }
 
           monitor_loop() {
             while true; do
-              L1=$(grep '^cpu ' /proc/stat 2>/dev/null \
-                || echo "cpu 0 0 0 0 0 0 0")
+              L1=$(grep '^cpu ' /proc/stat 2>/dev/null || echo "cpu 0 0 0 0 0 0 0")
               sleep 1
-              L2=$(grep '^cpu ' /proc/stat 2>/dev/null \
-                || echo "cpu 0 0 0 0 0 0 0")
+              L2=$(grep '^cpu ' /proc/stat 2>/dev/null || echo "cpu 0 0 0 0 0 0 0")
               CPU=$(awk -v l1="$L1" -v l2="$L2" 'BEGIN {
                 n=split(l1,a," "); split(l2,b," ")
                 id1=a[5]+0; id2=b[5]+0; t1=0; t2=0
@@ -443,18 +452,14 @@ print(json.dumps(obj))
               MP=$(( (RAM_KB - MF) * 100 / RAM_KB ))
               SW=$(free -m 2>/dev/null | awk '/Swap/{print $3+0}')
               DK=$(df -h . 2>/dev/null | awk 'NR==2{print $5}')
-              TP=$(grep -oP \
-                '(?<=TPS from last 1m, 5m, 15m: )[\d.]+' \
+              TP=$(grep -oP '(?<=TPS from last 1m, 5m, 15m: )[\d.]+' \
                 "$MC_LOG" 2>/dev/null | tail -1 || true)
               [ -z "$TP" ] && TP="N/A"
-              IN=$(grep -c "logged in with entity id" \
-                "$MC_LOG" 2>/dev/null || echo 0)
-              OUT=$(grep -c "lost connection" \
-                "$MC_LOG" 2>/dev/null || echo 0)
+              IN=$(grep -c "logged in with entity id" "$MC_LOG" 2>/dev/null || echo 0)
+              OUT=$(grep -c "lost connection" "$MC_LOG" 2>/dev/null || echo 0)
               ONL=$(( IN - OUT ))
               [ "$ONL" -lt 0 ] && ONL=0
-              printf \
-                'TS=%s;CPU=%s%%;RAM=%sMB/%sMB(%s%%);SWAP=%sMB;DISK=%s;TPS=%s;ONL=%s\n' \
+              printf 'TS=%s;CPU=%s%%;RAM=%sMB/%sMB(%s%%);SWAP=%sMB;DISK=%s;TPS=%s;ONL=%s\n' \
                 "$(date '+%H:%M:%S')" "$CPU" "$MU" "$RAM_MB" \
                 "$MP" "$SW" "$DK" "$TP" "$ONL" > "$STATS_FILE"
               sleep 9
@@ -501,9 +506,7 @@ print(json.dumps(obj))
 
             if [ -n "$WORLD_DIRS" ]; then
               CHANGED=$(world_changed "$WORLD_DIRS")
-              echo "  Mondes detectes:$(echo "$WORLD_DIRS" \
-                | tr ' ' '\n' | grep -v '^$' \
-                | awk '{print " "$1}' | tr -d '\n')"
+              echo "  Mondes: ${WORLD_DIRS}"
 
               if [ "$FORCE" = "1" ] || [ "$CHANGED" -gt 0 ]; then
                 echo "  ${CHANGED} chunks modifies, compression..."
@@ -524,7 +527,6 @@ print(json.dumps(obj))
                   --buffer-size=256M --retries=3 --checksum \
                   2>/dev/null &
                 PIDS+=($!)
-
                 touch "$WORLD_REF"
               else
                 echo "  Aucun chunk modifie, skip"
@@ -539,20 +541,15 @@ print(json.dumps(obj))
           }
 
           git_sync() {
-            echo "[GIT] Sync runtime data..."
+            echo "[GIT] Sync..."
             git config user.name  "MC Server Bot"
             git config user.email "bot@mc-server.local"
 
             for dir in \
-                plugins/Essentials \
-                plugins/spark \
-                plugins/bStats \
-                plugins/CustomNPCs \
-                plugins/HeadDatabase \
-                plugins/Multiverse-Core \
-                plugins/TAB \
-                plugins/Chunky \
-                plugins/WorldManager; do
+                plugins/Essentials plugins/spark plugins/bStats \
+                plugins/CustomNPCs plugins/HeadDatabase \
+                plugins/Multiverse-Core plugins/TAB \
+                plugins/Chunky plugins/WorldManager; do
               [ -d "$dir" ] || continue
               find "$dir" -type f \
                 \( -name "*.db" -o -name "*.csv" -o -name "*.json" \) \
@@ -566,8 +563,7 @@ print(json.dumps(obj))
 
             if ! git diff --cached --quiet 2>/dev/null; then
               STAMP=$(date '+%Y-%m-%d %H:%M:%S')
-              git commit -m "runtime-sync ${STAMP}" --no-verify \
-                2>/dev/null \
+              git commit -m "runtime-sync ${STAMP}" --no-verify 2>/dev/null \
                 && git push \
                   "https://x-access-token:${FINE_GRAINED_PAT}@github.com/${REPO}.git" \
                   HEAD:main --force 2>/dev/null \
@@ -639,6 +635,9 @@ print(json.dumps(obj))
             echo $!
           }
 
+          # ═══════════════════════════════════════════════
+          #  DEMARRAGE
+          # ═══════════════════════════════════════════════
           MC_PID=$(start_mc)
           T_START=$(date +%s)
           T_BACKUP=$(date +%s)
@@ -649,14 +648,17 @@ print(json.dumps(obj))
 
           echo "MC PID=${MC_PID} | RAM=${JVM} | CPUs=${CPUS}"
 
-          monitor_loop        & MONITOR_PID=$!
-          live_logs           & LIVE_PID=$!
-          discord_log_watcher & DISCORD_PID=$!
+          monitor_loop & MONITOR_PID=$!
+          live_logs    & LIVE_PID=$!
 
-          discord 3066993 \
-            "Serveur demarre" \
-            "Le serveur Minecraft est en ligne ! JVM: ${JVM} | CPUs: ${CPUS}"
+          python3 /tmp/discord_watcher.py "$MC_LOG" & DISCORD_PID=$!
 
+          discord 3066993 "Serveur demarre" \
+            "Le serveur est en ligne - JVM: ${JVM} | CPUs: ${CPUS}"
+
+          # ═══════════════════════════════════════════════
+          #  BOUCLE PRINCIPALE
+          # ═══════════════════════════════════════════════
           while true; do
             sleep 20
             LOOP=$(( LOOP + 1 ))
@@ -687,11 +689,8 @@ print(json.dumps(obj))
                 show_stats
                 backup "graceful-stop" "1"
                 git_sync
-                discord 3447003 \
-                  "Serveur arrete" \
-                  "Arret propre via /stop."
-                kill "$MONITOR_PID" "$LIVE_PID" \
-                  "$DISCORD_PID" 2>/dev/null || true
+                discord 3447003 "Serveur arrete" "Arret propre via /stop."
+                kill "$MONITOR_PID" "$LIVE_PID" "$DISCORD_PID" 2>/dev/null || true
                 echo "GRACEFUL" > "$STOPPED_CLEANLY"
                 sleep 10
                 gh_cancel
@@ -699,30 +698,30 @@ print(json.dumps(obj))
                 exit 0
               else
                 CRASHES=$(( CRASHES + 1 ))
-                echo "=== CRASH #${CRASHES} $(date '+%H:%M:%S') ==="
+                echo "=== CRASH ${CRASHES} $(date '+%H:%M:%S') ==="
                 show_stats
                 tail -40 "$MC_LOG" 2>/dev/null || true
-                CRASH_CAUSE="Cause inconnue"
-                grep -qiE "OutOfMemoryError" "$MC_LOG" 2>/dev/null \
-                  && CRASH_CAUSE="OutOfMemoryError" \
-                  && echo "CAUSE: OOM" || true
-                grep -qiE "StackOverflowError" "$MC_LOG" 2>/dev/null \
-                  && CRASH_CAUSE="StackOverflowError" \
-                  && echo "CAUSE: StackOverflow" || true
 
-                discord 15158332 \
-                  "Crash numero ${CRASHES}" \
-                  "Le serveur a crashe (${CRASH_CAUSE}). Redemarrage dans 10s..."
+                CRASH_CAUSE="Cause inconnue"
+                if grep -qiE "OutOfMemoryError" "$MC_LOG" 2>/dev/null; then
+                  CRASH_CAUSE="OutOfMemoryError"
+                  echo "CAUSE: OOM"
+                fi
+                if grep -qiE "StackOverflowError" "$MC_LOG" 2>/dev/null; then
+                  CRASH_CAUSE="StackOverflowError"
+                  echo "CAUSE: StackOverflow"
+                fi
+
+                discord 15158332 "Crash ${CRASHES}" \
+                  "Le serveur a crashe: ${CRASH_CAUSE}. Redemarrage dans 10s..."
 
                 if [ "$CRASHES" -ge 5 ]; then
                   echo "[FATAL] 5 crashs consecutifs"
                   backup "crash-fatal" "1"
                   git_sync
-                  discord 15158332 \
-                    "Crash fatal" \
-                    "5 crashs consecutifs. Arret definitif du serveur."
-                  kill "$MONITOR_PID" "$LIVE_PID" \
-                    "$DISCORD_PID" 2>/dev/null || true
+                  discord 15158332 "Crash fatal" \
+                    "5 crashs consecutifs - Arret definitif."
+                  kill "$MONITOR_PID" "$LIVE_PID" "$DISCORD_PID" 2>/dev/null || true
                   exit 1
                 fi
 
@@ -741,11 +740,9 @@ print(json.dumps(obj))
               echo "[INFO] Relance automatique (${ELAPSED_MIN}min)"
               backup "pre-restart" "1"
               git_sync
-              discord 16776960 \
-                "Redemarrage automatique" \
+              discord 16776960 "Redemarrage automatique" \
                 "Redemarrage planifie apres ${ELAPSED_MIN} minutes."
-              kill "$MONITOR_PID" "$LIVE_PID" \
-                "$DISCORD_PID" 2>/dev/null || true
+              kill "$MONITOR_PID" "$LIVE_PID" "$DISCORD_PID" 2>/dev/null || true
               gh_dispatch
               sleep 5
               mc_cmd "say §c[Serveur] Redemarrage automatique..."
@@ -782,7 +779,7 @@ print(json.dumps(obj))
           done < <(find . -maxdepth 1 -type d ! -name '.')
 
           if [ -n "$WORLD_DIRS" ]; then
-            echo "Mondes:$WORLD_DIRS"
+            echo "Mondes: ${WORLD_DIRS}"
             # shellcheck disable=SC2086
             tar -cf - \
               --exclude='*/session.lock' \
