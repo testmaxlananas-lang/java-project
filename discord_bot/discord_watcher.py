@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Lit mc.log en temps reel et ecrit des evenements JSON
-dans /tmp/mc_events.jsonl lu par discord_bot.py
+Lit mc.log en temps reel et append des events JSON
+dans /tmp/mc_events.jsonl lu par bot.py
 """
 import sys, os, time, re, json
 
 MC_LOG     = sys.argv[1] if len(sys.argv) > 1 else "mc.log"
-EVENT_PIPE = os.environ.get("MC_EVENT_PIPE", "/tmp/mc_events.jsonl")
+EVENT_FILE = os.environ.get("MC_EVENT_FILE", "/tmp/mc_events.jsonl")
 
 RE_JOIN  = re.compile(r'INFO\]:\s+(\w+)\[/.+\]\s+logged in with entity id')
 RE_QUIT  = re.compile(r'INFO\]:\s+(\w+)\s+lost connection:')
@@ -20,37 +20,25 @@ RE_DEATH = re.compile(
 def emit(ev: dict):
     line = json.dumps(ev, ensure_ascii=False)
     try:
-        with open(EVENT_PIPE, "w") as f:
+        with open(EVENT_FILE, "a") as f:
             f.write(line + "\n")
             f.flush()
-        print(f"[Watcher] emit: {line}", flush=True)
+        print(f"[Watcher] {line}", flush=True)
     except Exception as e:
-        print(f"[Watcher] Erreur emit: {e}", flush=True)
+        print(f"[Watcher] Erreur: {e}", flush=True)
 
-def emit_raw(ev: dict):
-    """Ouvre le pipe en mode append pour ne pas perdre d'events."""
-    line = json.dumps(ev, ensure_ascii=False)
-    try:
-        with open(EVENT_PIPE, "a") as f:
-            f.write(line + "\n")
-            f.flush()
-        print(f"[Watcher] emit: {line}", flush=True)
-    except Exception as e:
-        print(f"[Watcher] Erreur emit: {e}", flush=True)
-
-# Attendre le log
 waited = 0
 while not os.path.isfile(MC_LOG):
     time.sleep(1)
     waited += 1
     if waited > 120:
-        print("[Watcher] Timeout attente mc.log", flush=True)
+        print("[Watcher] Timeout", flush=True)
         sys.exit(0)
 
-print(f"[Watcher] Surveillance de {MC_LOG}", flush=True)
+print(f"[Watcher] Surveillance: {MC_LOG}", flush=True)
 
 with open(MC_LOG, "r", errors="replace") as f:
-    f.seek(0, 2)  # aller a la fin
+    f.seek(0, 2)
     while True:
         line = f.readline()
         if not line:
@@ -60,20 +48,20 @@ with open(MC_LOG, "r", errors="replace") as f:
 
         m = RE_JOIN.search(line)
         if m:
-            emit_raw({"type": "join", "player": m.group(1)})
+            emit({"type": "join", "player": m.group(1)})
             continue
 
         m = RE_QUIT.search(line)
         if m:
-            emit_raw({"type": "quit", "player": m.group(1)})
+            emit({"type": "quit", "player": m.group(1)})
             continue
 
         m = RE_CHAT.search(line)
         if m:
-            emit_raw({"type": "chat", "player": m.group(1), "text": m.group(2)})
+            emit({"type": "chat", "player": m.group(1), "text": m.group(2)})
             continue
 
         m = RE_DEATH.search(line)
         if m:
-            emit_raw({"type": "death", "text": m.group(1)})
+            emit({"type": "death", "text": m.group(1)})
             continue
