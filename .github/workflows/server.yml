@@ -269,6 +269,7 @@ jobs:
           FINE_GRAINED_PAT: ${{ secrets.FINE_GRAINED_PAT }}
           REPO:             ${{ github.repository }}
           RUN_ID:           ${{ github.run_id }}
+          DISCORD_WEBHOOK:  ${{ secrets.DISCORD_WEBHOOK }}
         run: |
           JAVA="/usr/lib/jvm/temurin-21-jdk-amd64/bin/java"
           MC_LOG="mc.log"
@@ -292,6 +293,107 @@ jobs:
           echo "RAM: ${RAM_MB}MB | JVM: ${JVM} | CPUs: ${CPUS}"
 
           mc_cmd() { printf '%s\n' "$*" > "$MC_PIPE" 2>/dev/null || true; }
+
+          # ── Fonction webhook Discord ─────────────────────────────────
+          discord() {
+            local color="$1"
+            local title="$2"
+            local desc="$3"
+            [ -z "$DISCORD_WEBHOOK" ] && return 0
+            local title_escaped desc_escaped
+            title_escaped=$(printf '%s' "$title" \
+              | sed 's/\\/\\\\/g; s/"/\\"/g')
+            desc_escaped=$(printf '%s' "$desc" \
+              | sed 's/\\/\\\\/g; s/"/\\"/g')
+            curl -sf -X POST "$DISCORD_WEBHOOK" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"embeds\": [{
+                  \"title\": \"${title_escaped}\",
+                  \"description\": \"${desc_escaped}\",
+                  \"color\": ${color},
+                  \"footer\": {\"text\": \"$(date '+%H:%M:%S')\"}
+                }]
+              }" 2>/dev/null || true
+          }
+
+          # ── Watcher de logs Discord ──────────────────────────────────
+          discord_log_watcher() {
+            [ -z "$DISCORD_WEBHOOK" ] && return 0
+
+            while [ ! -f "$MC_LOG" ]; do sleep 1; done
+
+            tail -f "$MC_LOG" 2>/dev/null | while IFS= read -r LINE; do
+
+              # Joueur rejoint
+              if echo "$LINE" | grep -qE "logged in with entity id"; then
+                PLAYER=$(echo "$LINE" \
+                  | grep -oP '(?<=\]: )\w+(?= logged in)' \
+                  || echo "Inconnu")
+                curl -sf -X POST "$DISCORD_WEBHOOK" \
+                  -H "Content-Type: application/json" \
+                  -d "{\"embeds\":[{
+                    \"title\": \"\U0001F7E2 Connexion\",
+                    \"description\": \"**${PLAYER}** a rejoint le serveur\",
+                    \"color\": 3066993,
+                    \"footer\": {\"text\": \"$(date '+%H:%M:%S')\"}
+                  }]}" 2>/dev/null || true
+              fi
+
+              # Joueur quitte
+              if echo "$LINE" | grep -qE "lost connection:"; then
+                PLAYER=$(echo "$LINE" \
+                  | grep -oP '(?<=\]: )\w+(?= lost connection)' \
+                  || echo "Inconnu")
+                curl -sf -X POST "$DISCORD_WEBHOOK" \
+                  -H "Content-Type: application/json" \
+                  -d "{\"embeds\":[{
+                    \"title\": \"\U0001F534 Deconnexion\",
+                    \"description\": \"**${PLAYER}** a quitte\",
+                    \"color\": 15158332,
+                    \"footer\": {\"text\": \"$(date '+%H:%M:%S')\"}
+                  }]}" 2>/dev/null || true
+              fi
+
+              # Message chat
+              if echo "$LINE" | grep -qP '\[.+\] \[.+INFO\]: <\w+>'; then
+                MSG=$(echo "$LINE" \
+                  | grep -oP '(?<=INFO\]: ).*' || true)
+                PLAYER=$(echo "$MSG" \
+                  | grep -oP '(?<=<)\w+(?=>)' || echo "?")
+                TEXT=$(echo "$MSG" \
+                  | grep -oP '(?<=> ).*' || true)
+                TEXT_ESC=$(printf '%s' "$TEXT" \
+                  | sed 's/\\/\\\\/g; s/"/\\"/g')
+                curl -sf -X POST "$DISCORD_WEBHOOK" \
+                  -H "Content-Type: application/json" \
+                  -d "{\"embeds\":[{
+                    \"title\": \"\U0001F4AC ${PLAYER}\",
+                    \"description\": \"${TEXT_ESC}\",
+                    \"color\": 5793266,
+                    \"footer\": {\"text\": \"$(date '+%H:%M:%S')\"}
+                  }]}" 2>/dev/null || true
+              fi
+
+              # Mort d'un joueur
+              if echo "$LINE" | grep -qiE \
+                  "was slain|drowned|fell|burnt|starved|suffocated|killed by"; then
+                DEATH=$(echo "$LINE" \
+                  | grep -oP '(?<=INFO\]: ).*' || true)
+                DEATH_ESC=$(printf '%s' "$DEATH" \
+                  | sed 's/\\/\\\\/g; s/"/\\"/g')
+                curl -sf -X POST "$DISCORD_WEBHOOK" \
+                  -H "Content-Type: application/json" \
+                  -d "{\"embeds\":[{
+                    \"title\": \"\U0001F480 Mort\",
+                    \"description\": \"${DEATH_ESC}\",
+                    \"color\": 10038562,
+                    \"footer\": {\"text\": \"$(date '+%H:%M:%S')\"}
+                  }]}" 2>/dev/null || true
+              fi
+
+            done
+          }
 
           gh_cancel() {
             curl -sf -X POST \
@@ -319,9 +421,7 @@ jobs:
             while IFS= read -r dir; do
               local name
               name="$(basename "$dir")"
-              # Ignorer les dossiers non-monde
               case " $BLACKLIST " in *" $name "*) continue ;; esac
-              # Valider : doit avoir level.dat
               [ -f "$dir/level.dat" ] || continue
               DIRS="$DIRS $name"
             done < <(find . -maxdepth 1 -type d ! -name '.')
@@ -422,7 +522,6 @@ jobs:
               if [ "$FORCE" = "1" ] || [ "$CHANGED" -gt 0 ]; then
                 echo "  ${CHANGED} chunks modifies, compression..."
 
-                # Tout mettre dans une seule archive worlds.tar.zst
                 # shellcheck disable=SC2086
                 tar -cf - \
                   --exclude='*/session.lock' \
@@ -556,6 +655,7 @@ jobs:
             echo $!
           }
 
+          # ── Démarrage ────────────────────────────────────────────────
           MC_PID=$(start_mc)
           T_START=$(date +%s)
           T_BACKUP=$(date +%s)
@@ -566,9 +666,15 @@ jobs:
 
           echo "MC PID=${MC_PID} | RAM=${JVM} | CPUs=${CPUS}"
 
-          monitor_loop & MONITOR_PID=$!
-          live_logs    & LIVE_PID=$!
+          monitor_loop         & MONITOR_PID=$!
+          live_logs            & LIVE_PID=$!
+          discord_log_watcher  & DISCORD_PID=$!
 
+          # Notifier démarrage sur Discord
+          discord 3066993 "🟢 Serveur démarré" \
+            "Le serveur est en ligne !\nJVM: ${JVM} | CPUs: ${CPUS}"
+
+          # ── Boucle principale ─────────────────────────────────────────
           while true; do
             sleep 20
             LOOP=$(( LOOP + 1 ))
@@ -599,7 +705,11 @@ jobs:
                 show_stats
                 backup "graceful-stop" "1"
                 git_sync
-                kill "$MONITOR_PID" "$LIVE_PID" 2>/dev/null || true
+                # Notifier arrêt propre sur Discord
+                discord 3447003 "🔵 Serveur arrêté" \
+                  "Arrêt propre via /stop."
+                kill "$MONITOR_PID" "$LIVE_PID" \
+                  "$DISCORD_PID" 2>/dev/null || true
                 echo "GRACEFUL" > "$STOPPED_CLEANLY"
                 sleep 10
                 gh_cancel
@@ -615,11 +725,18 @@ jobs:
                 grep -qiE "StackOverflowError" "$MC_LOG" 2>/dev/null \
                   && echo "CAUSE: StackOverflow" || true
 
+                # Notifier crash sur Discord
+                discord 15158332 "🔴 Crash #${CRASHES}" \
+                  "Le serveur a crashé. Redémarrage dans 10s..."
+
                 if [ "$CRASHES" -ge 5 ]; then
                   echo "[FATAL] 5 crashs"
                   backup "crash-fatal" "1"
                   git_sync
-                  kill "$MONITOR_PID" "$LIVE_PID" 2>/dev/null || true
+                  discord 15158332 "💥 Crash fatal" \
+                    "5 crashs consecutifs. Arret definitif."
+                  kill "$MONITOR_PID" "$LIVE_PID" \
+                    "$DISCORD_PID" 2>/dev/null || true
                   exit 1
                 fi
 
@@ -638,7 +755,10 @@ jobs:
               echo "[INFO] Relance (${ELAPSED_MIN}min)"
               backup "pre-restart" "1"
               git_sync
-              kill "$MONITOR_PID" "$LIVE_PID" 2>/dev/null || true
+              discord 16776960 "🟡 Redémarrage automatique" \
+                "Redémarrage planifié après ${ELAPSED_MIN} minutes."
+              kill "$MONITOR_PID" "$LIVE_PID" \
+                "$DISCORD_PID" 2>/dev/null || true
               gh_dispatch
               sleep 5
               mc_cmd "say §c[Serveur] Redemarrage automatique..."
