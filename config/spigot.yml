@@ -1,70 +1,146 @@
+# ══════════════════════════════════════════════════════
+#  spigot.yml — Optimisé build server
+# ══════════════════════════════════════════════════════
+
+config-version: 12
+
 settings:
-  timeout-time: 120
-  restart-on-crash: false
-  restart-script: ''
-  bungeecord: false
+  debug: false
+  save-user-cache-on-stop-only: true
   sample-count: 12
   player-shuffle: 0
   user-cache-size: 1000
-  save-user-cache-on-stop-only: false
   moved-wrongly-threshold: 0.0625
   moved-too-quickly-multiplier: 10.0
+  timeout-time: 60
+  restart-on-crash: false
+  bungeecord: false
+  netty-threads: 4
+  attribute:
+    maxHealth:
+      max: 2048.0
+    movementSpeed:
+      max: 2048.0
+    attackDamage:
+      max: 2048.0
   log-villager-deaths: false
-  log-named-deaths: true
+  log-named-deaths: false
+
+messages:
+  whitelist: You are not whitelisted on this server!
+  unknown-command: Unknown command. Type "/help" for help.
+  server-full: The server is full!
+  outdated-client: Outdated client! Please use {0}
+  outdated-server: Outdated server! I'm still on {0}
+  restart: Server is restarting
+
+advancements:
+  disable-saving: false
+  disabled: []
+
+stats:
+  disable-saving: false
+  forced-stats: {}
+
+commands:
+  log: false
+  replace-commands:
+    - setblock
+    - summon
+    - testforblock
+    - tellraw
+  silent-commandblock-console: false
+  send-namespaced: true
+  spam-exclusions:
+    - /skill
+
+players:
+  disable-saving: false
 
 world-settings:
   default:
+    below-zero-generation-in-existing-chunks: true
+    end-portal-sound-radius: 0
     verbose: false
-    view-distance: 20
-    simulation-distance: 6        # Réduit de 10 à 6 : les entités n'ont pas besoin de simuler loin sur un serveur build
+    chunk-gc:
+      period-in-ticks: 600
+    mob-spawn-range: 4
+    squid-spawn-range:
+      min: 45.0
     thunder-chance: 100000
-    mob-spawn-range: 2            # Réduit : moins de mobs = plus de perf
+    item-despawn-rate: 6000
+    arrow-despawn-rate: 1200
+    trident-despawn-rate: 1200
+    zombie-aggressive-towards-villager: false
+    nerf-spawner-mobs: false
+    hanging-tick-frequency: 100
     entity-activation-range:
-      animals: 8                  # Réduit drastiquement, pas besoin sur serveur build
+      animals: 8
       monsters: 8
-      raiders: 16
+      raiders: 8
       misc: 2
-      water: 2
+      water: 8
       villagers: 8
       flying-monsters: 8
+      wake-up-inactive:
+        animals-max-per-tick: 2
+        animals-every: 1200
+        animals-for: 100
+        monsters-max-per-tick: 2
+        monsters-every: 400
+        monsters-for: 100
+        villagers-max-per-tick: 1
+        villagers-every: 600
+        villagers-for: 100
+        flying-monsters-max-per-tick: 2
+        flying-monsters-every: 200
+        flying-monsters-for: 100
       villagers-work-immunity-after: 100
       villagers-work-immunity-for: 20
-      ignore-spectators: true     # Les spectateurs n'activent pas les entités
+      ignore-spectators: false
     entity-tracking-range:
-      players: 128
-      animals: 48
-      monsters: 48
-      misc: 32
+      players: 48
+      animals: 32
+      monsters: 40
+      misc: 16
       display: 128
-      other: 64
-    merge-radius:
-      item: 6.0                   # Merge items plus agressivement
-      exp: 8.0
-    hopper-amount: 1              # Réduit le throughput des hoppers (inutiles sur serveur build)
+      other: 32
+    ticks-per:
+      hopper-transfer: 8
+      hopper-check: 1
+    hopper-amount: 1
     hopper-can-load-chunks: false
-    dragon-death-sound-radius: 0
-    max-tnt-per-tick: 100         # Limite le TNT en même temps
-    seed-village: 10387312
-    seed-desert: 14357617
-    seed-igloo: 14357618
-    seed-jungle: 14357619
-    seed-swamp: 14357620
-    seed-monument: 10387313
-    seed-shipwreck: 165745295
-    seed-ocean: 14357621
-    seed-outpost: 165745296
-    seed-endcity: 10387313
-    seed-slime: 987234911
-    seed-nether: 30084232
-    seed-mansion: 10387319
-    seed-fossil: 14357921
-    seed-portal: 34222645
+    max-tnt-per-tick: 100
+    max-tick-time:
+      tile: 50
+      entity: 50
+    growth:
+      cactus-modifier: 0
+      cane-modifier: 0
+      melon-modifier: 0
+      mushroom-modifier: 0
+      pumpkin-modifier: 0
+      sapling-modifier: 0
+      beetroot-modifier: 0
+      carrot-modifier: 0
+      potato-modifier: 0
+      wheat-modifier: 0
+      netherwart-modifier: 0
+      vine-modifier: 0
+      cocoa-modifier: 0
+      bamboo-modifier: 0
+      sweetberry-modifier: 0
+      kelp-modifier: 0
+      twistingvines-modifier: 0
+      weepingvines-modifier: 0
+      cavevines-modifier: 0
+      glowberry-modifier: 0
+      pitcherplant-modifier: 0
     hunger:
-      walk-exhaustion: 0.0
-      sprint-exhaustion: 0.0
+      jump-walk-exhaustion: 0.0
+      jump-sprint-exhaustion: 0.0
       combat-exhaustion: 0.0
       regen-exhaustion: 0.0
-      swim-exhaustion: 0.0
-      dive-exhaustion: 0.0
-      jump-exhaustion: 0.0
-      fly-exhaustion: 0.0
+      swim-multiplier: 0.0
+      sprint-multiplier: 0.0
+      other-multiplier: 0.0
