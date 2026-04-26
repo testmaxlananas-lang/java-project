@@ -110,8 +110,7 @@ jobs:
 
           command -v zstd >/dev/null 2>&1 || sudo apt-get install -y -qq zstd
 
-          pip install -q discord.py aiohttp 2>/dev/null || \
-            pip3 install -q discord.py aiohttp 2>/dev/null || true
+          pip3 install -q --no-cache-dir discord.py aiohttp 2>/dev/null || true
 
           RAM_MB=$(awk '/MemTotal/{print int($2/1024)}' /proc/meminfo)
           echo "=============================="
@@ -241,27 +240,30 @@ jobs:
 
       - name: Discord Bot
         env:
-          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
-          DISCORD_GUILD_ID:  ${{ secrets.DISCORD_GUILD_ID }}
+          DISCORD_BOT_TOKEN:  ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_GUILD_ID:   ${{ secrets.DISCORD_GUILD_ID }}
           DISCORD_CHANNEL_ID: ${{ secrets.DISCORD_CHANNEL_ID }}
-          GITHUB_PAT:        ${{ secrets.FINE_GRAINED_PAT }}
-          GITHUB_REPO:       ${{ github.repository }}
-          MC_EVENT_PIPE:     /tmp/mc_events.jsonl
+          GITHUB_PAT:         ${{ secrets.FINE_GRAINED_PAT }}
+          GITHUB_REPO:        ${{ github.repository }}
+          MC_EVENT_FILE:      /tmp/mc_events.jsonl
         run: |
-          python3 discord_bot.py > /tmp/bot.log 2>&1 &
-          BOT_PID=$!
-          echo "Bot PID=${BOT_PID}"
-          echo "$BOT_PID" > /tmp/bot.pid
+          touch /tmp/mc_events.jsonl
 
-          for i in $(seq 1 20); do
+          python3 discord_bot/bot.py > /tmp/bot.log 2>&1 &
+          BOT_PID=$!
+          echo "$BOT_PID" > /tmp/bot.pid
+          echo "Bot PID=${BOT_PID}"
+
+          for i in $(seq 1 30); do
             sleep 1
-            if grep -q "Bot Connecte\|Bot prêt\|on_ready" /tmp/bot.log 2>/dev/null; then
+            if grep -q "Connecte:" /tmp/bot.log 2>/dev/null; then
               echo "Bot Discord connecte en ${i}s"
               break
             fi
             if ! kill -0 "$BOT_PID" 2>/dev/null; then
-              echo "Bot mort au demarrage:"
+              echo "=== Bot mort au demarrage ==="
               cat /tmp/bot.log
+              echo "=== Fin log bot ==="
               break
             fi
           done
@@ -269,10 +271,10 @@ jobs:
 
       - name: Minecraft
         env:
-          FINE_GRAINED_PAT:   ${{ secrets.FINE_GRAINED_PAT }}
-          REPO:               ${{ github.repository }}
-          RUN_ID:             ${{ github.run_id }}
-          MC_EVENT_PIPE:      /tmp/mc_events.jsonl
+          FINE_GRAINED_PAT: ${{ secrets.FINE_GRAINED_PAT }}
+          REPO:             ${{ github.repository }}
+          RUN_ID:           ${{ github.run_id }}
+          MC_EVENT_FILE:    /tmp/mc_events.jsonl
         run: |
           JAVA="/usr/lib/jvm/temurin-21-jdk-amd64/bin/java"
           MC_LOG="mc.log"
@@ -280,12 +282,13 @@ jobs:
           STATS_FILE="/tmp/mc_stats.txt"
           WORLD_REF="/tmp/world_ref.txt"
           STOPPED_CLEANLY="/tmp/mc_stopped_cleanly"
-          EVENT_PIPE="/tmp/mc_events.jsonl"
+          EVENT_FILE="/tmp/mc_events.jsonl"
 
           rm -f "$MC_PIPE" "$STOPPED_CLEANLY"
           mkfifo "$MC_PIPE"
           > "$MC_LOG"
           touch "$WORLD_REF"
+          touch "$EVENT_FILE"
 
           RAM_KB=$(awk '/MemTotal/{print $2}' /proc/meminfo)
           RAM_MB=$(( RAM_KB / 1024 ))
@@ -301,8 +304,7 @@ jobs:
           }
 
           emit_event() {
-            local json="$1"
-            echo "$json" >> "$EVENT_PIPE" 2>/dev/null || true
+            printf '%s\n' "$1" >> "$EVENT_FILE" 2>/dev/null || true
           }
 
           gh_cancel() {
@@ -343,7 +345,11 @@ jobs:
           }
 
           monitor_loop() {
+            local RAM_KB_LOC
+            RAM_KB_LOC=$(awk '/MemTotal/{print $2}' /proc/meminfo)
+            local RAM_MB_LOC=$(( RAM_KB_LOC / 1024 ))
             while true; do
+              local L1 L2 CPU MF MU MP SW DK TP IN OUT ONL
               L1=$(grep '^cpu ' /proc/stat 2>/dev/null || echo "cpu 0 0 0 0 0 0 0")
               sleep 1
               L2=$(grep '^cpu ' /proc/stat 2>/dev/null || echo "cpu 0 0 0 0 0 0 0")
@@ -355,8 +361,8 @@ jobs:
                 printf "%d",(dt>0)?100-int(di*100/dt):0
               }')
               MF=$(awk '/MemAvailable/{print $2+0}' /proc/meminfo)
-              MU=$(( (RAM_KB - MF) / 1024 ))
-              MP=$(( (RAM_KB - MF) * 100 / RAM_KB ))
+              MU=$(( (RAM_KB_LOC - MF) / 1024 ))
+              MP=$(( (RAM_KB_LOC - MF) * 100 / RAM_KB_LOC ))
               SW=$(free -m 2>/dev/null | awk '/Swap/{print $3+0}')
               DK=$(df -h . 2>/dev/null | awk 'NR==2{print $5}')
               TP=$(grep -oP '(?<=TPS from last 1m, 5m, 15m: )[\d.]+' \
@@ -367,7 +373,7 @@ jobs:
               ONL=$(( IN - OUT ))
               [ "$ONL" -lt 0 ] && ONL=0
               printf 'TS=%s;CPU=%s%%;RAM=%sMB/%sMB(%s%%);SWAP=%sMB;DISK=%s;TPS=%s;ONL=%s\n' \
-                "$(date '+%H:%M:%S')" "$CPU" "$MU" "$RAM_MB" \
+                "$(date '+%H:%M:%S')" "$CPU" "$MU" "$RAM_MB_LOC" \
                 "$MP" "$SW" "$DK" "$TP" "$ONL" > "$STATS_FILE"
               sleep 9
             done
@@ -409,9 +415,11 @@ jobs:
             mc_cmd "save-all flush" 2>/dev/null || true
             sleep 3
 
+            local WORLD_DIRS
             WORLD_DIRS=$(get_world_dirs)
 
             if [ -n "$WORLD_DIRS" ]; then
+              local CHANGED
               CHANGED=$(world_changed "$WORLD_DIRS")
               echo "  Mondes: ${WORLD_DIRS}"
 
@@ -426,6 +434,7 @@ jobs:
                   $WORLD_DIRS 2>/dev/null \
                 | zstd -19 -T0 --long=27 -fo worlds.tar.zst
 
+                local SZ
                 SZ=$(du -sh worlds.tar.zst 2>/dev/null | cut -f1)
                 echo "  Archive: ${SZ} (zstd-19)"
 
@@ -469,6 +478,7 @@ jobs:
               banned-ips.json server.properties 2>/dev/null || true
 
             if ! git diff --cached --quiet 2>/dev/null; then
+              local STAMP
               STAMP=$(date '+%Y-%m-%d %H:%M:%S')
               git commit -m "runtime-sync ${STAMP}" --no-verify 2>/dev/null \
                 && git push \
@@ -555,8 +565,9 @@ jobs:
           monitor_loop & MONITOR_PID=$!
           live_logs    & LIVE_PID=$!
 
-          MC_EVENT_PIPE="$EVENT_PIPE" \
-            python3 discord_watcher.py "$MC_LOG" > /tmp/watcher.log 2>&1 & WATCHER_PID=$!
+          MC_EVENT_FILE="$EVENT_FILE" \
+            python3 discord_bot/discord_watcher.py "$MC_LOG" \
+            >> /tmp/watcher.log 2>&1 & WATCHER_PID=$!
 
           emit_event "{\"type\":\"start\",\"jvm\":\"${JVM}\",\"cpus\":\"${CPUS}\"}"
 
