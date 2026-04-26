@@ -2,32 +2,30 @@ import discord
 import aiohttp
 import asyncio
 import os
+import re
 import json
 import subprocess
 from discord.ext import commands, tasks
-from discord import app_commands
-from datetime import datetime, timezone
 
 TOKEN      = os.environ["DISCORD_BOT_TOKEN"]
 GUILD      = int(os.environ["DISCORD_GUILD_ID"])
 CHANNEL    = int(os.environ["DISCORD_CHANNEL_ID"])
 PAT        = os.environ["GITHUB_PAT"]
 REPO       = os.environ["GITHUB_REPO"]
-EVENT_FILE = os.environ.get("MC_EVENT_FILE", "/tmp/mc_events.jsonl")
-MC_PIPE    = os.environ.get("MC_PIPE", "/tmp/mc_input")
-STATS_FILE = os.environ.get("MC_STATS_FILE", "/tmp/mc_stats.txt")
-MC_LOG     = os.environ.get("MC_LOG", "mc.log")
+EVENT_FILE = os.environ.get("MC_EVENT_FILE",  "/tmp/mc_events.jsonl")
+MC_PIPE    = os.environ.get("MC_PIPE",        "/tmp/mc_input")
+STATS_FILE = os.environ.get("MC_STATS_FILE",  "/tmp/mc_stats.txt")
+MC_LOG     = os.environ.get("MC_LOG",         "/home/runner/work/java-project/java-project/mc.log")
 
 intents                 = discord.Intents.default()
 intents.message_content = True
 bot                     = commands.Bot(command_prefix="!", intents=intents)
-tree                    = bot.tree
 
 msg_queue: asyncio.Queue = asyncio.Queue()
 
 
-# ── Envoi commande MC ────────────────────────────────────────────────────────
-def mc_cmd(cmd: str):
+# ── Envoi commande au serveur MC ─────────────────────────────────────────────
+def mc_cmd(cmd: str) -> bool:
     try:
         with open(MC_PIPE, "w") as f:
             f.write(cmd + "\n")
@@ -38,37 +36,14 @@ def mc_cmd(cmd: str):
         return False
 
 
-# ── Lecture joueurs connectes depuis mc.log ──────────────────────────────────
+# ── Joueurs en ligne : suivi par events jsonl (fiable) ───────────────────────
+_online_players: set[str] = set()
+
 def get_online_players() -> list[str]:
-    if not os.path.isfile(MC_LOG):
-        return []
-    joined  = []
-    left    = set()
-    try:
-        with open(MC_LOG, "r", errors="replace") as f:
-            for line in f:
-                if "logged in with entity id" in line:
-                    import re
-                    m = re.search(r'INFO\]:\s+(\w+)\[/', line)
-                    if m:
-                        joined.append(m.group(1))
-                elif "lost connection:" in line:
-                    import re
-                    m = re.search(r'INFO\]:\s+(\w+)\s+lost connection', line)
-                    if m:
-                        left.add(m.group(1))
-    except Exception:
-        pass
-    seen    = set()
-    online  = []
-    for p in reversed(joined):
-        if p not in seen and p not in left:
-            seen.add(p)
-            online.append(p)
-    return list(reversed(online))
+    return sorted(_online_players)
 
 
-# ── Lecture stats systeme ────────────────────────────────────────────────────
+# ── Stats systeme ─────────────────────────────────────────────────────────────
 def get_stats() -> dict:
     result = {}
     if not os.path.isfile(STATS_FILE):
@@ -85,20 +60,23 @@ def get_stats() -> dict:
     return result
 
 
-# ── Lecture events MC ────────────────────────────────────────────────────────
+# ── Lecture events MC → queue Discord ────────────────────────────────────────
 async def event_reader():
+    global _online_players
     loop   = asyncio.get_event_loop()
     waited = 0
     while not os.path.isfile(EVENT_FILE):
         await asyncio.sleep(1)
         waited += 1
         if waited > 120:
+            print("[Bot] Timeout attente EVENT_FILE", flush=True)
             return
 
     print(f"[Bot] Lecture events: {EVENT_FILE}", flush=True)
 
-    def read_lines(pos):
-        lines = []
+    def read_lines(pos: int):
+        lines   = []
+        new_pos = pos
         try:
             with open(EVENT_FILE, "r", errors="replace") as f:
                 f.seek(pos)
@@ -106,7 +84,7 @@ async def event_reader():
                     lines.append(line.rstrip())
                 new_pos = f.tell()
         except Exception:
-            new_pos = pos
+            pass
         return lines, new_pos
 
     pos = os.path.getsize(EVENT_FILE) if os.path.isfile(EVENT_FILE) else 0
@@ -123,12 +101,23 @@ async def event_reader():
             continue
         lines, pos = await loop.run_in_executor(None, read_lines, pos)
         for raw in lines:
-            if not raw.strip():
+            raw = raw.strip()
+            if not raw:
                 continue
             try:
                 ev = json.loads(raw)
             except json.JSONDecodeError:
                 continue
+
+            # Suivi joueurs en ligne
+            t = ev.get("type", "")
+            if t == "join":
+                _online_players.add(ev.get("player", ""))
+            elif t == "quit":
+                _online_players.discard(ev.get("player", ""))
+            elif t == "start":
+                _online_players.clear()
+
             msg = format_event(ev)
             if msg:
                 await msg_queue.put(msg)
@@ -143,14 +132,11 @@ def format_event(ev: dict) -> str | None:
     if t == "stop":
         return ":octagonal_sign: **Le serveur est arrete.**"
     if t == "restart":
-        mins = ev.get("minutes", "?")
-        return f":arrows_counterclockwise: **Redemarrage automatique** apres `{mins}` minutes."
+        return f":arrows_counterclockwise: **Redemarrage automatique** apres `{ev.get('minutes','?')}` minutes."
     if t == "crash":
-        n     = ev.get("count", "?")
-        cause = ev.get("cause", "Inconnue")
-        return f":red_circle: **Crash #{n}** — `{cause}` — Redemarrage dans 10s..."
+        return f":red_circle: **Crash #{ev.get('count','?')}** — `{ev.get('cause','?')}` — Redemarrage dans 10s..."
     if t == "crash_fatal":
-        return ":skull: **Crash fatal** — 5 crashs consecutifs. Arret definitif."
+        return ":skull: **Crash fatal** — Arret definitif."
     if t == "join":
         return f":arrow_right: **{ev.get('player','?')}** a rejoint le serveur."
     if t == "quit":
@@ -162,7 +148,7 @@ def format_event(ev: dict) -> str | None:
     return None
 
 
-# ── Flush queue → Discord ────────────────────────────────────────────────────
+# ── Flush queue → salon Discord ───────────────────────────────────────────────
 @tasks.loop(seconds=0.5)
 async def flush_queue():
     channel = bot.get_channel(CHANNEL)
@@ -179,36 +165,119 @@ async def flush_queue():
 
 
 # ════════════════════════════════════════════════════════════════════════════
-#  COMMANDES PREFIX
+#  MESSAGES DISCORD → MINECRAFT
+#  Tout message qui ne commence pas par ! est envoye in-game
+# ════════════════════════════════════════════════════════════════════════════
+@bot.event
+async def on_message(message: discord.Message):
+    # Ignorer les messages du bot lui-meme
+    if message.author.bot:
+        return
+
+    # Seulement dans le bon salon
+    if message.channel.id != CHANNEL:
+        await bot.process_commands(message)
+        return
+
+    content = message.content.strip()
+
+    # Si c'est une commande (commence par !), traiter normalement
+    if content.startswith("!"):
+        await bot.process_commands(message)
+        return
+
+    # Sinon : envoyer le message in-game avec le pseudo Discord
+    if content:
+        author_name = message.author.display_name
+        # Nettoyer le pseudo : enlever caractères speciaux Minecraft
+        author_clean = re.sub(r'[§&]', '', author_name)
+        # Limiter la longueur
+        if len(content) > 200:
+            content = content[:200] + "..."
+        mc_cmd(f"say [Discord] {author_clean}: {content}")
+
+    # NE PAS appeler process_commands ici (message normal, pas une commande)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  COMMANDES
 # ════════════════════════════════════════════════════════════════════════════
 
 @bot.command(name="players", aliases=["pl", "list", "who"])
 async def cmd_players(ctx):
-    """Liste les joueurs connectes."""
+    """!players — Joueurs connectes"""
     players = get_online_players()
     if not players:
         await ctx.send(":red_circle: Aucun joueur connecte.")
     else:
         names = ", ".join(f"**{p}**" for p in players)
-        await ctx.send(f":green_circle: **{len(players)} joueur(s) en ligne:** {names}")
+        await ctx.send(
+            f":green_circle: **{len(players)} joueur(s) en ligne:** {names}"
+        )
+
+
+@bot.command(name="status")
+async def cmd_status(ctx):
+    """!status — Statut complet"""
+    stats   = get_stats()
+    players = get_online_players()
+    if not stats:
+        await ctx.send(":red_circle: **Serveur hors ligne ou stats non disponibles.**")
+        return
+    tps_raw = stats.get("TPS", "N/A")
+    try:
+        tps_f   = float(tps_raw)
+        tps_em  = ":green_circle:" if tps_f >= 18 else ":yellow_circle:" if tps_f >= 15 else ":red_circle:"
+    except ValueError:
+        tps_em  = ":white_circle:"
+    lines = [
+        ":satellite: **Statut du serveur**",
+        "```",
+        f"Heure  : {stats.get('TS',   'N/A')}",
+        f"CPU    : {stats.get('CPU',  'N/A')}",
+        f"RAM    : {stats.get('RAM',  'N/A')}",
+        f"Swap   : {stats.get('SWAP', 'N/A')}",
+        f"Disque : {stats.get('DISK', 'N/A')}",
+        f"TPS    : {tps_raw}  {tps_em}",
+        f"Online : {len(players)} joueur(s)",
+        "```",
+    ]
+    if players:
+        lines.append(
+            f":busts_in_silhouette: {', '.join(f'**{p}**' for p in players)}"
+        )
+    await ctx.send("\n".join(lines))
+
+
+@bot.command(name="tps")
+async def cmd_tps(ctx):
+    """!tps — TPS actuel"""
+    stats   = get_stats()
+    tps_raw = stats.get("TPS", "N/A")
+    try:
+        tps_f  = float(tps_raw)
+        emoji  = ":green_circle:" if tps_f >= 18 else ":yellow_circle:" if tps_f >= 15 else ":red_circle:"
+    except ValueError:
+        emoji  = ":white_circle:"
+    online = len(get_online_players())
+    await ctx.send(
+        f"{emoji} **TPS:** `{tps_raw}` | **Online:** `{online}` joueur(s)"
+    )
 
 
 @bot.command(name="kick")
 async def cmd_kick(ctx, player: str = None, *, reason: str = "Kicked by admin"):
-    """Kick un joueur: !kick <pseudo> [raison]"""
+    """!kick <pseudo> [raison]"""
     if player is None:
         await ctx.send(":x: Usage: `!kick <pseudo> [raison]`")
         return
-    ok = mc_cmd(f"kick {player} {reason}")
-    if ok:
-        await ctx.send(f":boot: **{player}** a ete kick. Raison: `{reason}`")
-    else:
-        await ctx.send(":x: Impossible d'envoyer la commande au serveur.")
+    mc_cmd(f"kick {player} {reason}")
+    await ctx.send(f":boot: **{player}** a ete kick. Raison: `{reason}`")
 
 
 @bot.command(name="ban")
 async def cmd_ban(ctx, player: str = None, *, reason: str = "Banned by admin"):
-    """Ban un joueur: !ban <pseudo> [raison]"""
+    """!ban <pseudo> [raison]"""
     if player is None:
         await ctx.send(":x: Usage: `!ban <pseudo> [raison]`")
         return
@@ -218,7 +287,7 @@ async def cmd_ban(ctx, player: str = None, *, reason: str = "Banned by admin"):
 
 @bot.command(name="unban", aliases=["pardon"])
 async def cmd_unban(ctx, player: str = None):
-    """Unban un joueur: !unban <pseudo>"""
+    """!unban <pseudo>"""
     if player is None:
         await ctx.send(":x: Usage: `!unban <pseudo>`")
         return
@@ -228,7 +297,7 @@ async def cmd_unban(ctx, player: str = None):
 
 @bot.command(name="op")
 async def cmd_op(ctx, player: str = None):
-    """Donne les droits op: !op <pseudo>"""
+    """!op <pseudo>"""
     if player is None:
         await ctx.send(":x: Usage: `!op <pseudo>`")
         return
@@ -238,7 +307,7 @@ async def cmd_op(ctx, player: str = None):
 
 @bot.command(name="deop")
 async def cmd_deop(ctx, player: str = None):
-    """Retire les droits op: !deop <pseudo>"""
+    """!deop <pseudo>"""
     if player is None:
         await ctx.send(":x: Usage: `!deop <pseudo>`")
         return
@@ -248,7 +317,7 @@ async def cmd_deop(ctx, player: str = None):
 
 @bot.command(name="say")
 async def cmd_say(ctx, *, message: str = None):
-    """Envoie un message dans le chat MC: !say <message>"""
+    """!say <message> — Envoie dans le chat MC"""
     if message is None:
         await ctx.send(":x: Usage: `!say <message>`")
         return
@@ -258,7 +327,7 @@ async def cmd_say(ctx, *, message: str = None):
 
 @bot.command(name="tp")
 async def cmd_tp(ctx, player: str = None, target: str = None):
-    """Teleporte un joueur: !tp <joueur> <destination>"""
+    """!tp <joueur> <destination>"""
     if player is None or target is None:
         await ctx.send(":x: Usage: `!tp <joueur> <destination>`")
         return
@@ -268,7 +337,7 @@ async def cmd_tp(ctx, player: str = None, target: str = None):
 
 @bot.command(name="give")
 async def cmd_give(ctx, player: str = None, item: str = None, amount: str = "1"):
-    """Donne un item: !give <joueur> <item> [quantite]"""
+    """!give <joueur> <item> [quantite]"""
     if player is None or item is None:
         await ctx.send(":x: Usage: `!give <joueur> <item> [quantite]`")
         return
@@ -278,11 +347,13 @@ async def cmd_give(ctx, player: str = None, item: str = None, amount: str = "1")
 
 @bot.command(name="gamemode", aliases=["gm"])
 async def cmd_gamemode(ctx, player: str = None, mode: str = None):
-    """Change le gamemode: !gamemode <joueur> <creative|survival|spectator|adventure>"""
-    modes = {"c": "creative", "s": "survival", "sp": "spectator", "a": "adventure",
-             "creative": "creative", "survival": "survival",
-             "spectator": "spectator", "adventure": "adventure",
-             "0": "survival", "1": "creative", "2": "adventure", "3": "spectator"}
+    """!gamemode <joueur> <creative|survival|spectator|adventure>"""
+    modes = {
+        "c": "creative", "s": "survival", "sp": "spectator", "a": "adventure",
+        "creative": "creative", "survival": "survival",
+        "spectator": "spectator", "adventure": "adventure",
+        "0": "survival", "1": "creative", "2": "adventure", "3": "spectator"
+    }
     if player is None or mode is None:
         await ctx.send(":x: Usage: `!gamemode <joueur> <creative|survival|spectator|adventure>`")
         return
@@ -293,17 +364,17 @@ async def cmd_gamemode(ctx, player: str = None, mode: str = None):
 
 @bot.command(name="time")
 async def cmd_time(ctx, value: str = None):
-    """Change l'heure: !time <day|night|noon|midnight|0-24000>"""
+    """!time <day|night|noon|midnight|0-24000>"""
     if value is None:
-        await ctx.send(":x: Usage: `!time <day|night|noon|midnight|0-24000>`")
+        await ctx.send(":x: Usage: `!time <day|night|noon|midnight>`")
         return
     mc_cmd(f"time set {value}")
-    await ctx.send(f":clock3: Heure changee -> `{value}`.")
+    await ctx.send(f":clock3: Heure -> `{value}`.")
 
 
 @bot.command(name="weather")
 async def cmd_weather(ctx, value: str = None):
-    """Change la meteo: !weather <clear|rain|thunder>"""
+    """!weather <clear|rain|thunder>"""
     if value is None:
         await ctx.send(":x: Usage: `!weather <clear|rain|thunder>`")
         return
@@ -313,7 +384,7 @@ async def cmd_weather(ctx, value: str = None):
 
 @bot.command(name="difficulty")
 async def cmd_difficulty(ctx, value: str = None):
-    """Change la difficulte: !difficulty <peaceful|easy|normal|hard>"""
+    """!difficulty <peaceful|easy|normal|hard>"""
     if value is None:
         await ctx.send(":x: Usage: `!difficulty <peaceful|easy|normal|hard>`")
         return
@@ -323,88 +394,26 @@ async def cmd_difficulty(ctx, value: str = None):
 
 @bot.command(name="whitelist", aliases=["wl"])
 async def cmd_whitelist(ctx, action: str = None, player: str = None):
-    """Gere la whitelist: !whitelist <add|remove|on|off|list> [joueur]"""
+    """!whitelist <add|remove|on|off|list> [joueur]"""
     if action is None:
         await ctx.send(":x: Usage: `!whitelist <add|remove|on|off|list> [joueur]`")
         return
-    if action in ("add", "remove") and player:
+    if action in ("add", "remove"):
+        if player is None:
+            await ctx.send(f":x: Usage: `!whitelist {action} <joueur>`")
+            return
         mc_cmd(f"whitelist {action} {player}")
         await ctx.send(f":notepad_spiral: Whitelist `{action}` -> **{player}**.")
     elif action in ("on", "off", "list"):
         mc_cmd(f"whitelist {action}")
         await ctx.send(f":notepad_spiral: Whitelist -> `{action}`.")
     else:
-        await ctx.send(":x: Action invalide.")
-
-
-@bot.command(name="stop")
-async def cmd_stop(ctx):
-    """Arrete le serveur: !stop"""
-    mc_cmd("stop")
-    await ctx.send(":octagonal_sign: Arret du serveur envoye.")
-
-
-@bot.command(name="restart")
-async def cmd_restart_prefix(ctx):
-    """Relance le workflow: !restart"""
-    url = f"https://api.github.com/repos/{REPO}/actions/workflows/server.yml/dispatches"
-    headers = {"Authorization": f"token {PAT}", "Accept": "application/vnd.github.v3+json"}
-    async with aiohttp.ClientSession() as s:
-        async with s.post(url, headers=headers, json={"ref": "main"}) as r:
-            if r.status == 204:
-                await ctx.send(":white_check_mark: Serveur relance !")
-            else:
-                await ctx.send(f":x: Erreur {r.status}")
-
-
-@bot.command(name="status")
-async def cmd_status_prefix(ctx):
-    """Statut du serveur: !status"""
-    stats   = get_stats()
-    players = get_online_players()
-    if not stats:
-        await ctx.send(":red_circle: **Serveur hors ligne ou en demarrage...**")
-        return
-    lines = [
-        ":green_circle: **Statut du serveur**",
-        f"```",
-        f"Heure  : {stats.get('TS', 'N/A')}",
-        f"CPU    : {stats.get('CPU', 'N/A')}",
-        f"RAM    : {stats.get('RAM', 'N/A')}",
-        f"Swap   : {stats.get('SWAP', 'N/A')}",
-        f"Disque : {stats.get('DISK', 'N/A')}",
-        f"TPS    : {stats.get('TPS', 'N/A')}",
-        f"Online : {len(players)} joueur(s)",
-        f"```",
-    ]
-    if players:
-        lines.append(f":busts_in_silhouette: {', '.join(players)}")
-    await ctx.send("\n".join(lines))
-
-
-@bot.command(name="tps")
-async def cmd_tps(ctx):
-    """Affiche les TPS: !tps"""
-    mc_cmd("tps")
-    stats = get_stats()
-    tps   = stats.get("TPS", "N/A")
-    emoji = ":green_circle:" if tps != "N/A" and float(tps) >= 18 else ":yellow_circle:" if tps != "N/A" and float(tps) >= 15 else ":red_circle:"
-    await ctx.send(f"{emoji} **TPS:** `{tps}`")
-
-
-@bot.command(name="broadcast", aliases=["bc"])
-async def cmd_broadcast(ctx, *, message: str = None):
-    """Broadcast un message: !broadcast <message>"""
-    if message is None:
-        await ctx.send(":x: Usage: `!broadcast <message>`")
-        return
-    mc_cmd(f"broadcast {message}")
-    await ctx.send(f":mega: Broadcast: `{message}`")
+        await ctx.send(":x: Action invalide. Utilise: add, remove, on, off, list")
 
 
 @bot.command(name="heal")
 async def cmd_heal(ctx, player: str = None):
-    """Soigne un joueur: !heal <pseudo>"""
+    """!heal <pseudo>"""
     if player is None:
         await ctx.send(":x: Usage: `!heal <pseudo>`")
         return
@@ -414,7 +423,7 @@ async def cmd_heal(ctx, player: str = None):
 
 @bot.command(name="fly")
 async def cmd_fly(ctx, player: str = None):
-    """Toggle le vol: !fly <pseudo>"""
+    """!fly <pseudo>"""
     if player is None:
         await ctx.send(":x: Usage: `!fly <pseudo>`")
         return
@@ -424,7 +433,7 @@ async def cmd_fly(ctx, player: str = None):
 
 @bot.command(name="clear")
 async def cmd_clear(ctx, player: str = None):
-    """Vide l'inventaire: !clear <pseudo>"""
+    """!clear <pseudo>"""
     if player is None:
         await ctx.send(":x: Usage: `!clear <pseudo>`")
         return
@@ -432,9 +441,19 @@ async def cmd_clear(ctx, player: str = None):
     await ctx.send(f":wastebasket: Inventaire de **{player}** vide.")
 
 
+@bot.command(name="broadcast", aliases=["bc"])
+async def cmd_broadcast(ctx, *, message: str = None):
+    """!broadcast <message>"""
+    if message is None:
+        await ctx.send(":x: Usage: `!broadcast <message>`")
+        return
+    mc_cmd(f"broadcast {message}")
+    await ctx.send(f":mega: Broadcast: `{message}`")
+
+
 @bot.command(name="sudo")
 async def cmd_sudo(ctx, *, command: str = None):
-    """Envoie une commande brute au serveur: !sudo <commande>"""
+    """!sudo <commande brute MC>"""
     if command is None:
         await ctx.send(":x: Usage: `!sudo <commande>`")
         return
@@ -442,104 +461,95 @@ async def cmd_sudo(ctx, *, command: str = None):
     await ctx.send(f":computer: Commande envoyee: `{command}`")
 
 
+@bot.command(name="stop")
+async def cmd_stop(ctx):
+    """!stop — Arrete le serveur"""
+    mc_cmd("stop")
+    await ctx.send(":octagonal_sign: Arret du serveur envoye.")
+
+
+@bot.command(name="restart")
+async def cmd_restart(ctx):
+    """!restart — Relance le workflow"""
+    url     = f"https://api.github.com/repos/{REPO}/actions/workflows/server.yml/dispatches"
+    headers = {
+        "Authorization": f"token {PAT}",
+        "Accept":        "application/vnd.github.v3+json"
+    }
+    async with aiohttp.ClientSession() as s:
+        async with s.post(url, headers=headers, json={"ref": "main"}) as r:
+            if r.status == 204:
+                await ctx.send(":white_check_mark: Serveur relance !")
+            else:
+                await ctx.send(f":x: Erreur {r.status}")
+
+
 @bot.command(name="logs")
-async def cmd_logs(ctx, lines: int = 20):
-    """Affiche les derniers logs MC: !logs [nb_lignes]"""
+async def cmd_logs(ctx, nb: int = 20):
+    """!logs [nb] — Derniers logs MC"""
     if not os.path.isfile(MC_LOG):
-        await ctx.send(":x: Fichier log introuvable.")
+        await ctx.send(f":x: Log introuvable: `{MC_LOG}`")
         return
-    lines = min(lines, 40)
+    nb = min(max(nb, 1), 50)
     try:
         result = subprocess.run(
-            ["tail", f"-{lines}", MC_LOG],
+            ["tail", f"-{nb}", MC_LOG],
             capture_output=True, text=True, timeout=5
         )
         content = result.stdout.strip()
+        if not content:
+            await ctx.send(":x: Log vide.")
+            return
+        # Tronquer si trop long
         if len(content) > 1900:
-            content = content[-1900:]
+            content = "..." + content[-1897:]
         await ctx.send(f"```\n{content}\n```")
     except Exception as e:
-        await ctx.send(f":x: Erreur: {e}")
+        await ctx.send(f":x: Erreur: `{e}`")
 
 
-@bot.command(name="help_mc", aliases=["cmds", "commands"])
+@bot.command(name="help_mc", aliases=["cmds", "commands", "aide"])
 async def cmd_help(ctx):
-    """Liste toutes les commandes disponibles."""
-    help_text = """
-:joystick: **Commandes du bot Minecraft**
-
-**Joueurs**
-`!players` — Liste des joueurs en ligne
-`!status` — Statut complet du serveur
-`!tps` — TPS actuel
-
-**Moderation**
-`!kick <pseudo> [raison]` — Kick un joueur
-`!ban <pseudo> [raison]` — Ban un joueur
-`!unban <pseudo>` — Unban un joueur
-`!op <pseudo>` — Donner OP
-`!deop <pseudo>` — Retirer OP
-`!whitelist <add|remove|on|off|list> [pseudo]`
-
-**Joueur**
-`!tp <joueur> <destination>` — Teleporter
-`!gamemode <joueur> <mode>` — Changer gamemode
-`!give <joueur> <item> [quantite]` — Donner item
-`!heal <pseudo>` — Soigner
-`!fly <pseudo>` — Toggle vol
-`!clear <pseudo>` — Vider inventaire
-
-**Monde**
-`!time <day|night|noon|midnight>` — Heure
-`!weather <clear|rain|thunder>` — Meteo
-`!difficulty <peaceful|easy|normal|hard>` — Difficulte
-
-**Serveur**
-`!say <message>` — Chat MC
-`!broadcast <message>` — Broadcast
-`!restart` — Relancer le serveur
-`!stop` — Arreter le serveur
-`!sudo <commande>` — Commande brute
-`!logs [nb]` — Derniers logs
-"""
+    """!help_mc — Liste des commandes"""
+    help_text = (
+        ":joystick: **Commandes Bot Minecraft**\n\n"
+        "**Info**\n"
+        "`!players` `!pl` `!who` — Joueurs en ligne\n"
+        "`!status` — CPU / RAM / TPS / joueurs\n"
+        "`!tps` — TPS actuel\n"
+        "`!logs [nb]` — Derniers logs\n\n"
+        "**Moderation**\n"
+        "`!kick <pseudo> [raison]` — Kick\n"
+        "`!ban <pseudo> [raison]` — Ban\n"
+        "`!unban <pseudo>` — Unban\n"
+        "`!op <pseudo>` — Donner OP\n"
+        "`!deop <pseudo>` — Retirer OP\n"
+        "`!whitelist <add|remove|on|off|list> [pseudo]`\n\n"
+        "**Joueur**\n"
+        "`!tp <joueur> <dest>` — Teleporter\n"
+        "`!gamemode <joueur> <mode>` — Gamemode\n"
+        "`!give <joueur> <item> [qte]` — Donner item\n"
+        "`!heal <pseudo>` — Soigner\n"
+        "`!fly <pseudo>` — Toggle vol\n"
+        "`!clear <pseudo>` — Vider inventaire\n\n"
+        "**Monde**\n"
+        "`!time <day|night|noon|midnight>` — Heure\n"
+        "`!weather <clear|rain|thunder>` — Meteo\n"
+        "`!difficulty <peaceful|easy|normal|hard>` — Difficulte\n\n"
+        "**Serveur**\n"
+        "`!say <message>` — Chat MC\n"
+        "`!broadcast <message>` — Broadcast\n"
+        "`!restart` — Relancer\n"
+        "`!stop` — Arreter\n"
+        "`!sudo <commande>` — Commande brute\n\n"
+        ":speech_balloon: **Ecrire normalement** dans ce salon envoie le message in-game !"
+    )
     await ctx.send(help_text)
 
 
-# ════════════════════════════════════════════════════════════════════════════
-#  SLASH COMMANDS
-# ════════════════════════════════════════════════════════════════════════════
-
-@tree.command(name="status", description="Statut du serveur", guild=discord.Object(id=GUILD))
-async def slash_status(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)
-    stats   = get_stats()
-    players = get_online_players()
-    if not stats:
-        await interaction.followup.send(":red_circle: **Hors ligne**", ephemeral=True)
-        return
-    lines = [
-        f"**CPU:** {stats.get('CPU','N/A')} | **RAM:** {stats.get('RAM','N/A')}",
-        f"**TPS:** {stats.get('TPS','N/A')} | **Disque:** {stats.get('DISK','N/A')}",
-        f"**Joueurs:** {len(players)} — {', '.join(players) if players else 'aucun'}",
-    ]
-    await interaction.followup.send("\n".join(lines), ephemeral=True)
-
-
-@tree.command(name="restart", description="Relancer le serveur", guild=discord.Object(id=GUILD))
-async def slash_restart(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)
-    url     = f"https://api.github.com/repos/{REPO}/actions/workflows/server.yml/dispatches"
-    headers = {"Authorization": f"token {PAT}", "Accept": "application/vnd.github.v3+json"}
-    async with aiohttp.ClientSession() as s:
-        async with s.post(url, headers=headers, json={"ref": "main"}) as r:
-            msg = ":white_check_mark: Relance!" if r.status == 204 else f":x: Erreur {r.status}"
-    await interaction.followup.send(msg, ephemeral=True)
-
-
-# ── Events ───────────────────────────────────────────────────────────────────
+# ── Events bot ────────────────────────────────────────────────────────────────
 @bot.event
 async def on_ready():
-    await tree.sync(guild=discord.Object(id=GUILD))
     print(f"[Bot] Connecte: {bot.user}", flush=True)
     flush_queue.start()
     asyncio.create_task(event_reader())
