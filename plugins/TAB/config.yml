@@ -1,73 +1,96 @@
+# ══════════════════════════════════════════════════════
+#  TAB — Build Server — DA Médiévale/Arcane
+# ══════════════════════════════════════════════════════
+
 header-footer:
   enabled: true
   designs:
     default:
       header:
-      - ''
-      - <gradient:#00B4DB:#0083B0>⬡ Build Server ⬡</gradient>
-      - ''
+        - ''
+        - '<gradient:#C87A08:#D4A853>  ☩  B U I L D   S E R V E R  ☩  </gradient>'
+        - '<dark_gray>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</dark_gray>'
+        - ''
       footer:
-      - ''
-      - '&8┌─────────────────────────┐'
-      - '&8│  &7%date%  &8•  &b%time%  &8│'
-      - '&8│  &7Ping &8» &b%ping%ms  &8•  &7Monde &8» &b%world%  &8│'
-      - '&8└─────────────────────────┘'
-      - ''
+        - ''
+        - '<dark_gray>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</dark_gray>'
+        - '<gray>🕐 <white>%time%  <dark_gray>|  <gray>📡 <white>%ping%ms  <dark_gray>|  <gray>🌍 <white>%world%'
+        - '<gray>👥 <white>%online%<gray>/<white>%max% joueurs  <dark_gray>|  <gray>⚙ TPS <white>%tps%'
+        - '<dark_gray>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</dark_gray>'
+        - ''
+
 tablist-name-formatting:
   enabled: true
   disable-condition: ''
+
 scoreboard-teams:
   enabled: true
   enable-collision: false
   invisible-nametags: false
   sorting-types:
-  - PLACEHOLDER_A_TO_Z:%player%
+    - PLACEHOLDER_A_TO_Z:%player%
   case-sensitive-sorting: false
   can-see-friendly-invisibles: false
   disable-condition: ''
+
 playerlist-objective:
   enabled: true
   value: '%ping%'
-  fancy-value: '&8[&b%ping%ms&8]'
-  title: Ping
+  fancy-value: '<dark_gray>[<aqua>%ping%ms<dark_gray>]'
+  title: '⚡ Ping'
   render-type: INTEGER
   disable-condition: ''
+
 belowname-objective:
   enabled: false
-  fancy-value-default: NPC
-  fancy-value: '&c%health%'
+
 prevent-spectator-effect:
   enabled: true
+
 bossbar:
   enabled: false
+
 scoreboard:
   enabled: false
+
 layout:
   enabled: false
+
 ping-spoof:
   enabled: false
+
 global-playerlist:
   enabled: false
   update-latency: false
+
 placeholders:
   date-format: dd/MM/yyyy
   time-format: HH:mm
   time-offset: 0
   register-tab-expansion: false
+
 placeholder-output-replacements:
   '%essentials_vanished%':
-    'yes': ' &8[&7Vanish&8]'
+    'yes': ' <dark_gray>[<gray>Vanish<dark_gray>]'
     'no': ''
+
 conditions: {}
+
 placeholder-refresh-intervals:
   default-refresh-interval: 1000
   '%ping%': 500
   '%world%': 1000
+  '%online%': 2000
+  '%tps%': 2000
+
 assign-groups-by-permissions: false
+
 primary-group-finding-list:
-- default
+  - default
+
 permission-refresh-interval: 10000
 debug: false
+
 mysql:
   enabled: false
   host: 127.0.0.1
@@ -76,11 +99,14 @@ mysql:
   username: user
   password: password
   useSSL: true
+
 proxy-support:
   enabled: false
+
 components:
   minimessage-support: true
   disable-shadow-for-heads: false
+
 config-version: 2
 per-world-playerlist:
   enabled: false
