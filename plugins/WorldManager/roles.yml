@@ -1,0 +1,38 @@
+# ════════════════════════════════════════════════════════
+#  WorldManager — Attribution des rôles
+# ════════════════════════════════════════════════════════
+#
+#  Format:
+#    roles:
+#      <UUID-du-joueur>: <NOM_ROLE>
+#
+#  Rôles disponibles (par priorité décroissante):
+#  ─────────────────────────────────────────────
+#  MAGNATE      (👑 #C9A84C  priorité 130)
+#  BENEFACTOR   (🔮 #8B5CF6  priorité 120)
+#  PATRON       (💎 #00B4D8  priorité 110)
+#  GRANDMASTER  (☩  #C87A08  priorité 100)
+#  MANTLED      (🌑 #888888  priorité  90)
+#  CONTRACTOR   (🪙 #A0845C  priorité  85)
+#  LIGHTKEEPER  (🕯 #D4A853  priorité  80)
+#  STONECUTTER  (🪨 #7A7A7A  priorité  70)
+#  ARTIFICER    (⚙  #5B8DB8  priorité  60)
+#  ILLUMINATOR  (🖋 #9B72CF  priorité  50)
+#  SCULPTOR     (🗿 #A0714F  priorité  40)
+#  INITIATE     (🕯 #6B5A3E  priorité  30)
+#  ALLY         (🤝 #2E8B57  priorité  20)
+#  WANDERER     (🌿 #4A7C59  priorité  15)
+#  OUTSIDER     (🚪 #555555  priorité  10)
+#  CONSTRUCT    (⚙  #2C3E50  priorité   5)
+#  NONE                      (pas de rôle)
+#
+#  Exemple:
+#    roles:
+#      49c78fec-0fa0-407c-8055-ad7ec3d149d4: GRANDMASTER
+#      a1b2c3d4-e5f6-7890-abcd-ef1234567890: STONECUTTER
+#
+# ════════════════════════════════════════════════════════
+
+roles:
+  # Remplace l'UUID par le vrai UUID du joueur
+  49c78fec-0fa0-407c-8055-ad7ec3d149d4: GRANDMASTER
