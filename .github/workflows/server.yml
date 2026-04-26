@@ -50,6 +50,7 @@ jobs:
           printf '%s' "${{ secrets.RCLONE_CONF_B64 }}" | base64 -d > ~/.config/rclone/rclone.conf
           chmod 600 ~/.config/rclone/rclone.conf
 
+          # ── Réseau ──────────────────────────────────────────────────
           sudo sysctl -w \
             net.core.rmem_max=134217728 \
             net.core.wmem_max=134217728 \
@@ -62,38 +63,58 @@ jobs:
             net.ipv4.tcp_tw_reuse=1 \
             net.ipv4.tcp_fin_timeout=15 \
             net.ipv4.tcp_keepalive_time=300 \
+            2>/dev/null || true
+
+          # ── VM / IO ─────────────────────────────────────────────────
+          sudo sysctl -w \
             vm.swappiness=1 \
-            vm.dirty_ratio=60 \
-            vm.dirty_background_ratio=2 \
+            vm.dirty_ratio=80 \
+            vm.dirty_background_ratio=5 \
+            vm.dirty_expire_centisecs=3000 \
+            vm.dirty_writeback_centisecs=500 \
             vm.vfs_cache_pressure=50 \
             vm.overcommit_memory=1 \
-            vm.max_map_count=1048576 \
+            vm.overcommit_ratio=95 \
+            vm.max_map_count=2097152 \
+            2>/dev/null || true
+
+          # ── CPU ──────────────────────────────────────────────────────
+          sudo sysctl -w \
             kernel.sched_migration_cost_ns=5000000 \
             kernel.sched_autogroup_enabled=0 \
             kernel.pid_max=4194304 \
+            kernel.numa_balancing=0 \
             2>/dev/null || true
 
           echo madvise | sudo tee /sys/kernel/mm/transparent_hugepage/enabled >/dev/null 2>&1 || true
           echo defer+madvise | sudo tee /sys/kernel/mm/transparent_hugepage/defrag >/dev/null 2>&1 || true
+          echo 0 | sudo tee /sys/kernel/mm/transparent_hugepage/khugepaged/defrag >/dev/null 2>&1 || true
 
           for f in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
             [ -f "$f" ] && echo performance | sudo tee "$f" >/dev/null 2>&1 || true
           done
 
+          # IO scheduler none + readahead agressif pour WorldEdit
           for dev in /sys/block/sda /sys/block/sdb /sys/block/nvme0n1; do
-            [ -f "${dev}/queue/scheduler" ] && echo "none" | sudo tee "${dev}/queue/scheduler" >/dev/null 2>&1 || true
-            [ -f "${dev}/queue/read_ahead_kb" ] && echo "4096" | sudo tee "${dev}/queue/read_ahead_kb" >/dev/null 2>&1 || true
+            if [ -d "$dev" ]; then
+              echo "none"  | sudo tee "${dev}/queue/scheduler"    >/dev/null 2>&1 || true
+              echo "8192"  | sudo tee "${dev}/queue/read_ahead_kb" >/dev/null 2>&1 || true
+              echo "0"     | sudo tee "${dev}/queue/rotational"    >/dev/null 2>&1 || true
+              echo "256"   | sudo tee "${dev}/queue/nr_requests"   >/dev/null 2>&1 || true
+            fi
           done
 
           ulimit -n 1048576 2>/dev/null || true
+          ulimit -s unlimited 2>/dev/null || true
 
+          # ── Swap 8G ─────────────────────────────────────────────────
           if ! swapon --show | grep -q /swapfile 2>/dev/null; then
-            [ ! -f /swapfile ] && sudo fallocate -l 6G /swapfile 2>/dev/null || \
-              sudo dd if=/dev/zero of=/swapfile bs=1M count=6144 status=none
+            sudo fallocate -l 8G /swapfile 2>/dev/null || \
+              sudo dd if=/dev/zero of=/swapfile bs=1M count=8192 status=none
             sudo chmod 600 /swapfile
             sudo mkswap /swapfile >/dev/null 2>&1 || true
             sudo swapon /swapfile 2>/dev/null || true
-            echo "Swap 6G active"
+            echo "Swap 8G active"
           fi
 
           JAVA_BIN="/usr/lib/jvm/temurin-21-jdk-amd64/bin/java"
@@ -140,7 +161,6 @@ jobs:
           safe_dl "worlds.tar.zst" & P1=$!
           safe_dl "server.jar"     & P2=$!
           wait $P1 $P2
-          echo "Telechargements termines"
 
           if [ -f worlds.tar.zst ]; then
             SIZE=$(stat -c%s worlds.tar.zst 2>/dev/null || echo 0)
@@ -165,7 +185,6 @@ jobs:
               echo "server.jar OK ($(( SIZE / 1048576 ))MB)"
             else
               rm -f server.jar
-              echo "JAR corrompu, re-telechargement..."
             fi
           fi
 
@@ -193,7 +212,6 @@ jobs:
             case "$name" in server.jar|playit*) continue ;; esac
             cp -f "$jar" "plugins/${name}"
             JARS=$(( JARS + 1 ))
-            echo "  JAR: ${name} -> plugins/"
           done < <(find /tmp/repo-snapshot -maxdepth 1 -name "*.jar" \
             ! -name "server.jar" ! -name "playit*" 2>/dev/null)
           echo "  JARs copies: ${JARS}"
@@ -236,7 +254,6 @@ jobs:
               break
             fi
           done
-          grep -iE "tunnel|address|connect" playit.log 2>/dev/null | head -5 || true
 
       - name: Discord Bot
         env:
@@ -246,6 +263,9 @@ jobs:
           GITHUB_PAT:         ${{ secrets.FINE_GRAINED_PAT }}
           GITHUB_REPO:        ${{ github.repository }}
           MC_EVENT_FILE:      /tmp/mc_events.jsonl
+          MC_PIPE:            /tmp/mc_input
+          MC_STATS_FILE:      /tmp/mc_stats.txt
+          MC_LOG:             mc.log
         run: |
           touch /tmp/mc_events.jsonl
 
@@ -261,9 +281,8 @@ jobs:
               break
             fi
             if ! kill -0 "$BOT_PID" 2>/dev/null; then
-              echo "=== Bot mort au demarrage ==="
+              echo "=== Bot mort ==="
               cat /tmp/bot.log
-              echo "=== Fin log bot ==="
               break
             fi
           done
@@ -292,8 +311,9 @@ jobs:
 
           RAM_KB=$(awk '/MemTotal/{print $2}' /proc/meminfo)
           RAM_MB=$(( RAM_KB / 1024 ))
-          JVM_MB=$(( RAM_MB - 1536 ))
-          [ "$JVM_MB" -gt 13312 ] && JVM_MB=13312
+          # Laisser 1.2G pour l'OS, donner tout le reste à la JVM
+          JVM_MB=$(( RAM_MB - 1228 ))
+          [ "$JVM_MB" -gt 14336 ] && JVM_MB=14336
           [ "$JVM_MB" -lt 4096  ] && JVM_MB=4096
           JVM="${JVM_MB}M"
           CPUS=$(nproc)
@@ -312,7 +332,7 @@ jobs:
               -H "Authorization: token ${FINE_GRAINED_PAT}" \
               -H "Accept: application/vnd.github.v3+json" \
               "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/cancel" \
-              >/dev/null && echo "[GH] Annule" || echo "[GH] Echec annulation"
+              >/dev/null && echo "[GH] Annule" || echo "[GH] Echec"
           }
 
           gh_dispatch() {
@@ -345,9 +365,9 @@ jobs:
           }
 
           monitor_loop() {
-            local RAM_KB_LOC
-            RAM_KB_LOC=$(awk '/MemTotal/{print $2}' /proc/meminfo)
-            local RAM_MB_LOC=$(( RAM_KB_LOC / 1024 ))
+            local RAM_KB_L
+            RAM_KB_L=$(awk '/MemTotal/{print $2}' /proc/meminfo)
+            local RAM_MB_L=$(( RAM_KB_L / 1024 ))
             while true; do
               local L1 L2 CPU MF MU MP SW DK TP IN OUT ONL
               L1=$(grep '^cpu ' /proc/stat 2>/dev/null || echo "cpu 0 0 0 0 0 0 0")
@@ -361,8 +381,8 @@ jobs:
                 printf "%d",(dt>0)?100-int(di*100/dt):0
               }')
               MF=$(awk '/MemAvailable/{print $2+0}' /proc/meminfo)
-              MU=$(( (RAM_KB_LOC - MF) / 1024 ))
-              MP=$(( (RAM_KB_LOC - MF) * 100 / RAM_KB_LOC ))
+              MU=$(( (RAM_KB_L - MF) / 1024 ))
+              MP=$(( (RAM_KB_L - MF) * 100 / RAM_KB_L ))
               SW=$(free -m 2>/dev/null | awk '/Swap/{print $3+0}')
               DK=$(df -h . 2>/dev/null | awk 'NR==2{print $5}')
               TP=$(grep -oP '(?<=TPS from last 1m, 5m, 15m: )[\d.]+' \
@@ -373,7 +393,7 @@ jobs:
               ONL=$(( IN - OUT ))
               [ "$ONL" -lt 0 ] && ONL=0
               printf 'TS=%s;CPU=%s%%;RAM=%sMB/%sMB(%s%%);SWAP=%sMB;DISK=%s;TPS=%s;ONL=%s\n' \
-                "$(date '+%H:%M:%S')" "$CPU" "$MU" "$RAM_MB_LOC" \
+                "$(date '+%H:%M:%S')" "$CPU" "$MU" "$RAM_MB_L" \
                 "$MP" "$SW" "$DK" "$TP" "$ONL" > "$STATS_FILE"
               sleep 9
             done
@@ -436,7 +456,7 @@ jobs:
 
                 local SZ
                 SZ=$(du -sh worlds.tar.zst 2>/dev/null | cut -f1)
-                echo "  Archive: ${SZ} (zstd-19)"
+                echo "  Archive: ${SZ}"
 
                 rclone copy worlds.tar.zst rclone-mc:mc-backup/ \
                   --transfers=8 --multi-thread-streams=8 \
@@ -514,39 +534,55 @@ jobs:
             tail -f "$MC_PIPE" 2>/dev/null | \
             "$JAVA" \
               -Xms${JVM} -Xmx${JVM} \
+              \
               -XX:+UseG1GC \
               -XX:+ParallelRefProcEnabled \
               -XX:MaxGCPauseMillis=200 \
               -XX:+UnlockExperimentalVMOptions \
               -XX:+DisableExplicitGC \
               -XX:+AlwaysPreTouch \
+              \
               -XX:G1NewSizePercent=30 \
               -XX:G1MaxNewSizePercent=40 \
-              -XX:G1HeapRegionSize=16M \
+              -XX:G1HeapRegionSize=32M \
               -XX:G1ReservePercent=15 \
               -XX:G1HeapWastePercent=5 \
               -XX:G1MixedGCCountTarget=4 \
-              -XX:InitiatingHeapOccupancyPercent=20 \
+              -XX:InitiatingHeapOccupancyPercent=15 \
               -XX:G1MixedGCLiveThresholdPercent=90 \
               -XX:G1RSetUpdatingPauseTimePercent=5 \
               -XX:SurvivorRatio=32 \
               -XX:MaxTenuringThreshold=1 \
               -XX:+PerfDisableSharedMem \
-              -XX:ConcGCThreads=2 \
+              \
+              -XX:ConcGCThreads=${CPUS} \
               -XX:ParallelGCThreads=${CPUS} \
+              \
               -XX:+UseStringDeduplication \
               -XX:ReservedCodeCacheSize=512m \
               -XX:+OptimizeStringConcat \
+              -XX:+UseCompressedOops \
+              -XX:+UseCompressedClassPointers \
+              \
               -XX:+HeapDumpOnOutOfMemoryError \
               -XX:HeapDumpPath=/tmp/mc-oom.hprof \
               -XX:+ExitOnOutOfMemoryError \
-              -Dpaper.watchdog.earlyWarningDelay=120000 \
-              -Dpaper.watchdog.earlyWarningEvery=20000 \
+              \
+              -Dpaper.watchdog.earlyWarningDelay=300000 \
+              -Dpaper.watchdog.earlyWarningEvery=60000 \
               -Dpaper.maxChunkThreads=${CPUS} \
               -Dpaper.log-level=INFO \
+              \
+              -DPaper.WorkerThreadCount=${CPUS} \
+              \
               -Djava.net.preferIPv4Stack=true \
               -Dfile.encoding=UTF-8 \
               -Daikars.new.flags=true \
+              \
+              -Dcom.fastasyncworldedit.fawe.parallel=true \
+              -Dcom.fastasyncworldedit.fawe.target-size=8192 \
+              -Dcom.fastasyncworldedit.fawe.compressed-ops=true \
+              \
               -jar server.jar nogui \
               >> "$MC_LOG" 2>&1 &
             echo $!
