@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-"""
-Lit mc.log en temps reel et append des events JSON
-dans /tmp/mc_events.jsonl lu par bot.py
-"""
 import sys, os, time, re, json
 
 MC_LOG     = sys.argv[1] if len(sys.argv) > 1 else "mc.log"
@@ -32,7 +28,6 @@ while not os.path.isfile(MC_LOG):
     time.sleep(1)
     waited += 1
     if waited > 120:
-        print("[Watcher] Timeout", flush=True)
         sys.exit(0)
 
 print(f"[Watcher] Surveillance: {MC_LOG}", flush=True)
