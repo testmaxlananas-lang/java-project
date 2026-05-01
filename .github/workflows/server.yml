@@ -43,11 +43,10 @@ jobs:
 
           sudo systemctl stop unattended-upgrades apt-daily apt-daily-upgrade 2>/dev/null || true
           sudo systemctl disable unattended-upgrades apt-daily apt-daily-upgrade 2>/dev/null || true
-          sudo pkill -9 -f unattended-upgrades 2>/dev/null || true
+          sudo pkill -f unattended-upgrades 2>/dev/null || true
           sudo ln -sf /bin/true /usr/bin/mandb 2>/dev/null || true
           sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock 2>/dev/null || true
 
-          echo "[RCLONE] Installation..."
           curl -fsSL "https://downloads.rclone.org/rclone-current-linux-amd64.zip" -o /tmp/rclone.zip
           unzip -jo /tmp/rclone.zip "*/rclone" -d /tmp/
           sudo mv /tmp/rclone /usr/local/bin/rclone
@@ -59,7 +58,6 @@ jobs:
           printf '%s' "${{ secrets.RCLONE_CONF_B64 }}" | base64 -d > ~/.config/rclone/rclone.conf
           chmod 600 ~/.config/rclone/rclone.conf
 
-          echo "[KERNEL] Tuning..."
           sudo sysctl -w \
             net.core.rmem_max=268435456 \
             net.core.wmem_max=268435456 \
@@ -110,7 +108,6 @@ jobs:
           echo madvise       | sudo tee /sys/kernel/mm/transparent_hugepage/enabled           >/dev/null 2>&1 || true
           echo defer+madvise | sudo tee /sys/kernel/mm/transparent_hugepage/defrag            >/dev/null 2>&1 || true
           echo 0             | sudo tee /sys/kernel/mm/transparent_hugepage/khugepaged/defrag >/dev/null 2>&1 || true
-          echo 1             | sudo tee /sys/kernel/mm/transparent_hugepage/khugepaged/scan_sleep_millisecs >/dev/null 2>&1 || true
 
           for f in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
             [ -f "$f" ] && echo performance | sudo tee "$f" >/dev/null 2>&1 || true
@@ -118,44 +115,30 @@ jobs:
 
           for dev in /sys/block/sda /sys/block/sdb /sys/block/nvme0n1 /sys/block/xvda; do
             if [ -d "$dev" ]; then
-              echo "none"  | sudo tee "${dev}/queue/scheduler"      >/dev/null 2>&1 || true
-              echo "32768" | sudo tee "${dev}/queue/read_ahead_kb"  >/dev/null 2>&1 || true
-              echo "0"     | sudo tee "${dev}/queue/rotational"     >/dev/null 2>&1 || true
-              echo "512"   | sudo tee "${dev}/queue/nr_requests"    >/dev/null 2>&1 || true
-              echo "0"     | sudo tee "${dev}/queue/add_random"     >/dev/null 2>&1 || true
-              echo "2"     | sudo tee "${dev}/queue/rq_affinity"    >/dev/null 2>&1 || true
+              echo "none"  | sudo tee "${dev}/queue/scheduler"     >/dev/null 2>&1 || true
+              echo "32768" | sudo tee "${dev}/queue/read_ahead_kb" >/dev/null 2>&1 || true
+              echo "0"     | sudo tee "${dev}/queue/rotational"    >/dev/null 2>&1 || true
+              echo "512"   | sudo tee "${dev}/queue/nr_requests"   >/dev/null 2>&1 || true
+              echo "0"     | sudo tee "${dev}/queue/add_random"    >/dev/null 2>&1 || true
+              echo "2"     | sudo tee "${dev}/queue/rq_affinity"   >/dev/null 2>&1 || true
             fi
           done
-
-          sudo bash -c 'cat >> /etc/security/limits.conf <<LIMITS
-          * soft nofile 1048576
-          * hard nofile 1048576
-          * soft nproc  unlimited
-          * hard nproc  unlimited
-          * soft stack  unlimited
-          * hard stack  unlimited
-          * soft memlock unlimited
-          * hard memlock unlimited
-          LIMITS'
 
           ulimit -n 1048576 2>/dev/null || true
           ulimit -s unlimited 2>/dev/null || true
           ulimit -u unlimited 2>/dev/null || true
-          ulimit -l unlimited 2>/dev/null || true
 
-          echo "[SWAP] Creation 16G..."
           if ! swapon --show | grep -q /swapfile 2>/dev/null; then
-            sudo fallocate -l 16G /swapfile 2>/dev/null \
-              || sudo dd if=/dev/zero of=/swapfile bs=1M count=16384 status=none
+            sudo fallocate -l "${SWAP_SIZE_GB}G" /swapfile 2>/dev/null \
+              || sudo dd if=/dev/zero of=/swapfile bs=1M count=$(( SWAP_SIZE_GB * 1024 )) status=none
             sudo chmod 600 /swapfile
             sudo mkswap -L mc-swap /swapfile >/dev/null
             sudo swapon --priority=100 /swapfile
-            echo "[SWAP] OK — $(free -h | awk '/Swap/{print $2}')"
+            echo "[SWAP] $(free -h | awk '/Swap/{print $2}')"
           fi
 
           JAVA_BIN="/usr/lib/jvm/temurin-21-jdk-amd64/bin/java"
           if [ ! -f "$JAVA_BIN" ]; then
-            echo "[JAVA] Installation Temurin 21..."
             wget -qO - https://packages.adoptium.net/artifactory/api/gpg/key/public \
               | sudo gpg --dearmor \
               | sudo tee /etc/apt/trusted.gpg.d/adoptium.gpg >/dev/null
@@ -180,15 +163,10 @@ jobs:
           rclone_dl() {
             local src="$1" dst="${2:-.}"
             rclone copy "rclone-mc:mc-backup/${src}" "${dst}" \
-              --transfers=16 \
-              --multi-thread-streams=16 \
-              --multi-thread-cutoff=10M \
-              --buffer-size=512M \
-              --retries=5 \
-              --low-level-retries=10 \
-              --timeout=120s \
-              --fast-list \
-              2>/dev/null \
+              --transfers=16 --multi-thread-streams=16 \
+              --multi-thread-cutoff=10M --buffer-size=512M \
+              --retries=5 --low-level-retries=10 \
+              --timeout=120s --fast-list 2>/dev/null \
               && echo "[DL] OK: ${src}" \
               || echo "[DL] ABSENT: ${src}"
           }
@@ -220,7 +198,6 @@ jobs:
       - name: Paper JAR
         run: |
           set -uo pipefail
-
           MIN_SIZE=10000000
 
           if [ -f server.jar ]; then
@@ -255,29 +232,30 @@ jobs:
           SIZE=$(stat -c%s server.jar 2>/dev/null || echo 0)
           if [ "$SIZE" -gt "$MIN_SIZE" ]; then
             echo "[JAR] OK — $(du -sh server.jar | cut -f1)"
-            rclone copy server.jar rclone-mc:mc-backup/ --transfers=4 --retries=3 2>/dev/null &
+            rclone copy server.jar rclone-mc:mc-backup/ \
+              --transfers=4 --retries=3 2>/dev/null &
             disown
           else
-            echo "[JAR] Echec download (${SIZE}B)"
+            echo "[JAR] Echec (${SIZE}B)"
             exit 1
           fi
-
           echo "eula=true" > eula.txt
 
       - name: Appliquer repo
         run: |
           set -uo pipefail
-
           mkdir -p plugins
 
           find /tmp/repo-snapshot -maxdepth 1 -name "*.jar" \
-            ! -name "server.jar" ! -name "playit*" 2>/dev/null | while IFS= read -r jar; do
+            ! -name "server.jar" ! -name "playit*" 2>/dev/null \
+          | while IFS= read -r jar; do
             name="$(basename "$jar")"
             cp -f "$jar" "plugins/${name}"
             echo "[JAR] ${name}"
           done
 
-          find /tmp/repo-snapshot -type f 2>/dev/null | while IFS= read -r src; do
+          find /tmp/repo-snapshot -type f 2>/dev/null \
+          | while IFS= read -r src; do
             rel="${src#/tmp/repo-snapshot/}"
             case "$rel" in
               ""|.git/*|*.tar.zst|*.tar.gz|*.zip) continue ;;
@@ -303,13 +281,11 @@ jobs:
 
           PLAYIT_BIN="./playit-linux-amd64"
           if [ ! -f "$PLAYIT_BIN" ]; then
-            echo "[PLAYIT] Telechargement..."
             curl -fsSL \
               "https://github.com/playit-cloud/playit-agent/releases/latest/download/playit-linux-amd64" \
               -o "$PLAYIT_BIN" 2>/dev/null || true
           fi
           chmod +x "$PLAYIT_BIN" 2>/dev/null || true
-
           printf '%s' '${{ secrets.PLAYIT_SECRET }}' > playit.toml
 
           RUST_LOG=warn "$PLAYIT_BIN" --secret_path playit.toml > /tmp/playit.log 2>&1 &
@@ -356,6 +332,7 @@ jobs:
           LOCK_GIT="/tmp/git.lock"
           STOPPED_CLEANLY="/tmp/mc_stopped_cleanly"
           WORLD_REF="/tmp/world_ref.txt"
+          MC_PID_FILE="/tmp/mc_pid.txt"
           WORLD_BLACKLIST="plugins logs cache config libraries .git .paper-remapped crash-reports debug discord_bot dashboard"
 
           CPUS=$(nproc)
@@ -374,7 +351,6 @@ jobs:
           T_BACKUP=$T_START
           T_GIT=$T_START
           T_GIST=$T_START
-          T_WEBHOOK=$T_START
 
           CRASHES=0
           LOOP=0
@@ -390,10 +366,19 @@ jobs:
 
           echo "[INIT] RAM=${RAM_MB}MB JVM=${JVM} CPUs=${CPUS} GC=${GC_THREADS} REGION=${REGION_SIZE}M"
 
-          log() { printf '[%s] %s\n' "$(date '+%H:%M:%S')" "$*"; }
-          mc_cmd() { printf '%s\n' "$*" > "$MC_PIPE" 2>/dev/null || true; }
+          log()        { printf '[%s] %s\n' "$(date '+%H:%M:%S')" "$*"; }
+          mc_cmd()     { printf '%s\n' "$*" > "$MC_PIPE" 2>/dev/null || true; }
           emit_event() { printf '%s\n' "$1" >> "$EVENT_FILE" 2>/dev/null || true; }
-          mc_alive() { [ "$MC_PID" -gt 0 ] && kill -0 "$MC_PID" 2>/dev/null; }
+
+          mc_alive() {
+            local PID
+            PID=$(cat "$MC_PID_FILE" 2>/dev/null || echo 0)
+            [ "$PID" -gt 0 ] 2>/dev/null && kill -0 "$PID" 2>/dev/null
+          }
+
+          mc_get_pid() {
+            cat "$MC_PID_FILE" 2>/dev/null || echo 0
+          }
 
           was_graceful() {
             tail -80 "$MC_LOG_REL" 2>/dev/null \
@@ -401,11 +386,10 @@ jobs:
           }
 
           webhook_send() {
-            local MSG="$1"
             [ -z "${DISCORD_WEBHOOK:-}" ] && return 0
             curl -sf -X POST "${DISCORD_WEBHOOK}" \
               -H "Content-Type: application/json" \
-              -d "{\"content\":\"${MSG}\"}" \
+              -d "{\"content\":\"$1\"}" \
               >/dev/null 2>&1 || true
           }
 
@@ -415,8 +399,7 @@ jobs:
               -H "Accept: application/vnd.github.v3+json" \
               "https://api.github.com/repos/${REPO}/actions/workflows/server.yml/dispatches" \
               -d '{"ref":"main"}' >/dev/null 2>&1 \
-              && log "[GH] Dispatch OK" \
-              || log "[GH] Dispatch echoue"
+              && log "[GH] Dispatch OK" || log "[GH] Dispatch echoue"
           }
 
           gh_cancel() {
@@ -428,10 +411,10 @@ jobs:
           }
 
           push_gist() {
-            local STATUS="$1"
             [ -z "${STATS_GIST_ID:-}" ] && return 0
             local SL=""
             [ -f "$STATS_FILE" ] && SL=$(cat "$STATS_FILE" 2>/dev/null || true)
+            local STATUS="$1"
             python3 - <<PYEOF 2>/dev/null || true
           import json, os, urllib.request, datetime
           gist_id = os.environ.get('STATS_GIST_ID','')
@@ -451,8 +434,8 @@ jobs:
                 try:
                   ev = json.loads(line.strip())
                   t  = ev.get('type','')
-                  if t=='join':   pset.add(ev.get('player',''))
-                  elif t=='quit': pset.discard(ev.get('player',''))
+                  if t=='join':    pset.add(ev.get('player',''))
+                  elif t=='quit':  pset.discard(ev.get('player',''))
                   elif t=='start': pset.clear()
                 except: pass
             players = sorted(pset)
@@ -635,8 +618,8 @@ jobs:
               for line in f:
                 try:
                   ev=json.loads(line.strip()); t=ev.get('type','')
-                  if t=='join': players.add(ev.get('player',''))
-                  elif t=='quit': players.discard(ev.get('player',''))
+                  if t=='join':    players.add(ev.get('player',''))
+                  elif t=='quit':  players.discard(ev.get('player',''))
                   elif t=='start': players.clear()
                 except: pass
           except: pass
@@ -671,7 +654,7 @@ jobs:
 
           warn_restart() {
             mc_cmd "say §6§l[Serveur] §cRedemarrage automatique dans 60 secondes !"
-            webhook_send ":warning: Redemarrage du serveur dans 60s" &
+            webhook_send ":warning: Redemarrage dans 60s" &
             sleep 30
             mc_cmd "say §6§l[Serveur] §cRedemarrage dans 30 secondes !"
             sleep 20
@@ -686,6 +669,7 @@ jobs:
 
           start_mc() {
             log "[MC] Demarrage JVM=${JVM} CPUs=${CPUS} GC=${GC_THREADS} REGION=${REGION_SIZE}M"
+            rm -f "$MC_PID_FILE"
             tail -f "$MC_PIPE" 2>/dev/null | \
             "$JAVA" \
               -Xms${JVM} -Xmx${JVM} \
@@ -707,8 +691,6 @@ jobs:
               -XX:G1RSetUpdatingPauseTimePercent=5 \
               -XX:G1SATBBufferEnqueueingThresholdPercent=30 \
               -XX:G1ConcMarkStepDurationMillis=5 \
-              -XX:G1ConcRSHotCardLimit=16 \
-              -XX:G1ConcRefinementServiceIntervalMillis=150 \
               -XX:SurvivorRatio=32 \
               -XX:MaxTenuringThreshold=1 \
               -XX:+PerfDisableSharedMem \
@@ -728,7 +710,6 @@ jobs:
               -XX:+HeapDumpOnOutOfMemoryError \
               -XX:HeapDumpPath=/tmp/mc-oom-$$.hprof \
               -XX:+ExitOnOutOfMemoryError \
-              -XX:OnOutOfMemoryError="echo OOM >> /tmp/mc_oom_flag" \
               -Dpaper.watchdog.earlyWarningDelay=300000 \
               -Dpaper.watchdog.earlyWarningEvery=60000 \
               -Dpaper.maxChunkThreads=${CPUS} \
@@ -741,7 +722,10 @@ jobs:
               -Djava.util.concurrent.ForkJoinPool.common.parallelism=${CPUS} \
               -jar server.jar nogui \
               >> "$MC_LOG_REL" 2>&1 &
-            echo $!
+            local PID=$!
+            echo "$PID" > "$MC_PID_FILE"
+            MC_PID=$PID
+            log "[MC] PID=${MC_PID}"
           }
 
           graceful_shutdown() {
@@ -765,7 +749,7 @@ jobs:
             exit 0
           }
 
-          rm -f "$MC_PIPE" "$STOPPED_CLEANLY" "$LOCK_BACKUP" "$LOCK_GIT"
+          rm -f "$MC_PIPE" "$STOPPED_CLEANLY" "$LOCK_BACKUP" "$LOCK_GIT" "$MC_PID_FILE"
           mkfifo "$MC_PIPE"
           > "$MC_LOG_REL"
           touch "$WORLD_REF" "$EVENT_FILE"
@@ -777,26 +761,31 @@ jobs:
             log "[BOT] PID=${BOT_PID}"
             for i in $(seq 1 30); do
               sleep 1
-              grep -q "Connecte:" /tmp/bot.log 2>/dev/null && log "[BOT] Connecte en ${i}s" && break
-              kill -0 "$BOT_PID" 2>/dev/null || { log "[BOT] Mort au demarrage"; break; }
+              grep -q "Connecte:" /tmp/bot.log 2>/dev/null \
+                && log "[BOT] Connecte en ${i}s" && break
+              kill -0 "$BOT_PID" 2>/dev/null \
+                || { log "[BOT] Mort au demarrage"; cat /tmp/bot.log 2>/dev/null | tail -5 || true; break; }
             done
           fi
 
-          MC_PID=$(start_mc)
-          log "[MC] PID=${MC_PID}"
-          webhook_send ":rocket: Serveur Minecraft demarre (JVM=${JVM})" &
+          start_mc
+          webhook_send ":rocket: Serveur demarre (JVM=${JVM} CPUs=${CPUS})" &
 
           MC_READY=0
-          for i in $(seq 1 180); do
+          for i in $(seq 1 240); do
             sleep 2
-            grep -q "Done" "$MC_LOG_REL" 2>/dev/null && {
+            if grep -q "Done" "$MC_LOG_REL" 2>/dev/null; then
               log "[MC] Pret en $(( i * 2 ))s"
               MC_READY=1
               webhook_send ":white_check_mark: Serveur pret en $(( i * 2 ))s" &
               break
-            }
-            mc_alive || { log "[MC] Mort au demarrage"; break; }
-            [ $(( i % 15 )) -eq 0 ] && log "[MC] Demarrage... $(( i * 2 ))s"
+            fi
+            if ! mc_alive; then
+              log "[MC] Mort pendant le demarrage ($(( i * 2 ))s)"
+              tail -20 "$MC_LOG_REL" 2>/dev/null || true
+              break
+            fi
+            [ $(( i % 30 )) -eq 0 ] && log "[MC] Demarrage... $(( i * 2 ))s"
           done
 
           monitor_loop & MONITOR_PID=$!
@@ -878,19 +867,17 @@ jobs:
                 grep -qiE "StackOverflowError" "$MC_LOG_REL" 2>/dev/null && CRASH_CAUSE="StackOverflow"
                 grep -qiE "Watchdog"           "$MC_LOG_REL" 2>/dev/null && CRASH_CAUSE="Watchdog"
                 grep -qiE "java.lang.Error"    "$MC_LOG_REL" 2>/dev/null && CRASH_CAUSE="JavaError"
-                [ -f /tmp/mc_oom_flag ] && CRASH_CAUSE="OOM-ExitOnOOM"
-                rm -f /tmp/mc_oom_flag
                 log "[MC] Cause: ${CRASH_CAUSE}"
-                tail -30 "$MC_LOG_REL" 2>/dev/null || true
+                tail -20 "$MC_LOG_REL" 2>/dev/null || true
                 emit_event "{\"type\":\"crash\",\"count\":${CRASHES},\"cause\":\"${CRASH_CAUSE}\"}"
-                webhook_send ":skull: CRASH #${CRASHES} — Cause: ${CRASH_CAUSE}" &
+                webhook_send ":skull: CRASH \#${CRASHES} — ${CRASH_CAUSE}" &
                 push_gist "crash" &
                 if [ "$CRASHES" -ge 5 ]; then
-                  log "[MC] CRASH FATAL — arret"
+                  log "[MC] CRASH FATAL"
                   backup "crash-fatal" "1"
                   git_sync
                   emit_event '{"type":"crash_fatal"}'
-                  webhook_send ":x: CRASH FATAL — 5 crashs consecutifs" &
+                  webhook_send ":x: CRASH FATAL — 5 crashs" &
                   push_gist "offline" &
                   for PID in "$MONITOR_PID" "$LIVE_PID" "$WATCHER_PID" "$BOT_PID"; do
                     [ "$PID" -gt 0 ] && kill "$PID" 2>/dev/null || true
@@ -901,11 +888,9 @@ jobs:
                 log "[MC] Redemarrage dans 10s..."
                 sleep 10
                 WARNED=0
-                rm -f /tmp/mc_oom_flag
                 > "$MC_LOG_REL"
-                MC_PID=$(start_mc)
+                start_mc
                 T_START=$(date +%s)
-                log "[MC] Redemarre PID=${MC_PID}"
               fi
             else
               CRASHES=0
@@ -930,7 +915,9 @@ jobs:
                 mc_alive || break
                 [ $(( i % 15 )) -eq 0 ] && log "[MC] Attente arret ${i}s"
               done
-              mc_alive && kill -9 "$MC_PID" 2>/dev/null || true
+              if mc_alive; then
+                kill -9 "$(mc_get_pid)" 2>/dev/null || true
+              fi
               log "[MAIN] Relance terminee"
               exit 0
             fi
@@ -983,7 +970,7 @@ jobs:
           fi
 
           if [ -f /tmp/mc_stopped_cleanly ]; then
-            echo "[BACKUP] Arret propre — deja sauvegarde"
+            echo "[BACKUP] Deja sauvegarde — skip"
             rclone size rclone-mc:mc-backup/ 2>/dev/null || true
             exit 0
           fi
@@ -1010,9 +997,7 @@ jobs:
               --exclude='*.lck' \
               $WORLD_DIRS 2>/dev/null \
             | zstd -19 -T$(nproc) --long=27 -fo /tmp/worlds_final.tar.zst
-
             echo "[ARCHIVE] $(du -sh /tmp/worlds_final.tar.zst | cut -f1)"
-
             rclone copyto /tmp/worlds_final.tar.zst \
               rclone-mc:mc-backup/worlds.tar.zst \
               --transfers=16 --multi-thread-streams=16 \
@@ -1021,7 +1006,6 @@ jobs:
               2>/dev/null \
               && echo "[UPLOAD] OK" \
               || echo "[UPLOAD] Echoue"
-
             rm -f /tmp/worlds_final.tar.zst
           else
             echo "[BACKUP] Aucun monde"
