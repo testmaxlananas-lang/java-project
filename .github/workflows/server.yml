@@ -192,7 +192,7 @@ jobs:
             fi
             rm -f worlds.tar.zst
           else
-            echo "[WORLDS] Aucun backup — demarrage vierge"
+            echo "[WORLDS] Aucun backup"
           fi
 
       - name: Paper JAR
@@ -308,6 +308,8 @@ jobs:
       - name: Minecraft + Bot + Dashboard
         env:
           FINE_GRAINED_PAT: ${{ secrets.FINE_GRAINED_PAT }}
+          GITHUB_PAT: ${{ secrets.FINE_GRAINED_PAT }}
+          GITHUB_REPO: ${{ github.repository }}
           REPO: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
@@ -412,9 +414,8 @@ jobs:
 
           push_gist() {
             [ -z "${STATS_GIST_ID:-}" ] && return 0
-            local SL=""
+            local SL="" STATUS="$1"
             [ -f "$STATS_FILE" ] && SL=$(cat "$STATS_FILE" 2>/dev/null || true)
-            local STATUS="$1"
             python3 - <<PYEOF 2>/dev/null || true
           import json, os, urllib.request, datetime
           gist_id = os.environ.get('STATS_GIST_ID','')
@@ -556,7 +557,6 @@ jobs:
               plugins/Multiverse-Core plugins/TAB
               plugins/Chunky plugins/WorldManager
               plugins/LuckPerms plugins/PlaceholderAPI
-              plugins/CoreProtect plugins/Vault
             )
             for dir in "${SYNC_DIRS[@]}"; do
               [ -d "$dir" ] || continue
@@ -759,12 +759,18 @@ jobs:
             python3 discord_bot/bot.py > /tmp/bot.log 2>&1 &
             BOT_PID=$!
             log "[BOT] PID=${BOT_PID}"
-            for i in $(seq 1 30); do
+            for i in $(seq 1 15); do
               sleep 1
-              grep -q "Connecte:" /tmp/bot.log 2>/dev/null \
-                && log "[BOT] Connecte en ${i}s" && break
-              kill -0 "$BOT_PID" 2>/dev/null \
-                || { log "[BOT] Mort au demarrage"; cat /tmp/bot.log 2>/dev/null | tail -5 || true; break; }
+              if grep -q "Connecte:" /tmp/bot.log 2>/dev/null; then
+                log "[BOT] Connecte en ${i}s"
+                break
+              fi
+              if ! kill -0 "$BOT_PID" 2>/dev/null; then
+                log "[BOT] Mort au demarrage — erreur:"
+                tail -10 /tmp/bot.log 2>/dev/null || true
+                BOT_PID=0
+                break
+              fi
             done
           fi
 
@@ -970,7 +976,7 @@ jobs:
           fi
 
           if [ -f /tmp/mc_stopped_cleanly ]; then
-            echo "[BACKUP] Deja sauvegarde — skip"
+            echo "[BACKUP] Deja sauvegarde"
             rclone size rclone-mc:mc-backup/ 2>/dev/null || true
             exit 0
           fi
