@@ -1,8 +1,3 @@
-# ══════════════════════════════════════════════════════════════════════════════
-#  BUILD SERVER — GitHub Actions Workflow
-#  Ultra-robuste | Auto-restart | Backup | Discord | Dashboard
-# ══════════════════════════════════════════════════════════════════════════════
-
 name: server
 
 on:
@@ -12,12 +7,12 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  MC_VERSION:     "1.21.4"
-  MC_BUILD:       "latest"
-  JVM_MAX_MB:     "14336"
-  JVM_MIN_MB:     "4096"
+  MC_VERSION: "1.21.4"
+  MC_BUILD: "latest"
+  JVM_MAX_MB: "14336"
+  JVM_MIN_MB: "4096"
   JVM_RESERVE_MB: "1536"
-  SWAP_SIZE_GB:   "8"
+  SWAP_SIZE_GB: "8"
 
 concurrency:
   group: minecraft-server
@@ -27,12 +22,8 @@ jobs:
   run:
     runs-on: ubuntu-latest
     timeout-minutes: 350
-
     steps:
 
-# ──────────────────────────────────────────────────────────────────────────────
-# 1. CHECKOUT
-# ──────────────────────────────────────────────────────────────────────────────
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -40,9 +31,6 @@ jobs:
           persist-credentials: true
           token: ${{ secrets.FINE_GRAINED_PAT }}
 
-# ──────────────────────────────────────────────────────────────────────────────
-# 2. SNAPSHOT REPO
-# ──────────────────────────────────────────────────────────────────────────────
       - name: Snapshot repo
         run: |
           set -euo pipefail
@@ -51,25 +39,16 @@ jobs:
           FILE_COUNT=$(find /tmp/repo-snapshot -type f | wc -l)
           echo "[SNAPSHOT] ${FILE_COUNT} fichiers copiés"
 
-# ──────────────────────────────────────────────────────────────────────────────
-# 3. SETUP SYSTÈME
-# ──────────────────────────────────────────────────────────────────────────────
       - name: Setup système
         run: |
           set -euo pipefail
 
-          echo "════════════════════════════════════"
-          echo "  SETUP SYSTÈME"
-          echo "════════════════════════════════════"
-
-          sudo systemctl stop  unattended-upgrades apt-daily apt-daily-upgrade 2>/dev/null || true
+          sudo systemctl stop unattended-upgrades apt-daily apt-daily-upgrade 2>/dev/null || true
           sudo systemctl disable unattended-upgrades apt-daily apt-daily-upgrade 2>/dev/null || true
           sudo pkill -9 -f unattended-upgrades 2>/dev/null || true
           sudo ln -sf /bin/true /usr/bin/mandb 2>/dev/null || true
 
-          echo "[RCLONE] Installation..."
-          curl -fsSL "https://downloads.rclone.org/rclone-current-linux-amd64.zip" \
-            -o /tmp/rclone.zip
+          curl -fsSL "https://downloads.rclone.org/rclone-current-linux-amd64.zip" -o /tmp/rclone.zip
           unzip -jo /tmp/rclone.zip "*/rclone" -d /tmp/
           sudo mv /tmp/rclone /usr/local/bin/rclone
           sudo chmod +x /usr/local/bin/rclone
@@ -77,41 +56,39 @@ jobs:
           echo "[RCLONE] $(rclone --version | head -1)"
 
           mkdir -p ~/.config/rclone
-          printf '%s' "${{ secrets.RCLONE_CONF_B64 }}" | base64 -d \
-            > ~/.config/rclone/rclone.conf
+          printf '%s' "${{ secrets.RCLONE_CONF_B64 }}" | base64 -d > ~/.config/rclone/rclone.conf
           chmod 600 ~/.config/rclone/rclone.conf
 
-          echo "[KERNEL] Optimisations réseau/mémoire..."
           sudo sysctl -w \
-            net.core.rmem_max=134217728           \
-            net.core.wmem_max=134217728           \
-            net.core.rmem_default=262144          \
-            net.core.wmem_default=262144          \
-            net.core.netdev_max_backlog=250000    \
-            net.ipv4.tcp_congestion_control=bbr   \
-            net.core.default_qdisc=fq             \
-            net.ipv4.tcp_fastopen=3               \
-            net.ipv4.tcp_tw_reuse=1               \
-            net.ipv4.tcp_fin_timeout=15           \
-            net.ipv4.tcp_keepalive_time=300       \
-            vm.swappiness=1                       \
-            vm.dirty_ratio=80                     \
-            vm.dirty_background_ratio=5           \
-            vm.dirty_expire_centisecs=3000        \
-            vm.dirty_writeback_centisecs=500      \
-            vm.vfs_cache_pressure=50              \
-            vm.overcommit_memory=1                \
-            vm.overcommit_ratio=95                \
-            vm.max_map_count=2097152              \
+            net.core.rmem_max=134217728 \
+            net.core.wmem_max=134217728 \
+            net.core.rmem_default=262144 \
+            net.core.wmem_default=262144 \
+            net.core.netdev_max_backlog=250000 \
+            net.ipv4.tcp_congestion_control=bbr \
+            net.core.default_qdisc=fq \
+            net.ipv4.tcp_fastopen=3 \
+            net.ipv4.tcp_tw_reuse=1 \
+            net.ipv4.tcp_fin_timeout=15 \
+            net.ipv4.tcp_keepalive_time=300 \
+            vm.swappiness=1 \
+            vm.dirty_ratio=80 \
+            vm.dirty_background_ratio=5 \
+            vm.dirty_expire_centisecs=3000 \
+            vm.dirty_writeback_centisecs=500 \
+            vm.vfs_cache_pressure=50 \
+            vm.overcommit_memory=1 \
+            vm.overcommit_ratio=95 \
+            vm.max_map_count=2097152 \
             kernel.sched_migration_cost_ns=5000000 \
-            kernel.sched_autogroup_enabled=0      \
-            kernel.pid_max=4194304                \
-            kernel.numa_balancing=0               \
+            kernel.sched_autogroup_enabled=0 \
+            kernel.pid_max=4194304 \
+            kernel.numa_balancing=0 \
             2>/dev/null || true
 
-          echo madvise       | sudo tee /sys/kernel/mm/transparent_hugepage/enabled            >/dev/null 2>&1 || true
-          echo defer+madvise | sudo tee /sys/kernel/mm/transparent_hugepage/defrag             >/dev/null 2>&1 || true
-          echo 0             | sudo tee /sys/kernel/mm/transparent_hugepage/khugepaged/defrag  >/dev/null 2>&1 || true
+          echo madvise       | sudo tee /sys/kernel/mm/transparent_hugepage/enabled           >/dev/null 2>&1 || true
+          echo defer+madvise | sudo tee /sys/kernel/mm/transparent_hugepage/defrag            >/dev/null 2>&1 || true
+          echo 0             | sudo tee /sys/kernel/mm/transparent_hugepage/khugepaged/defrag >/dev/null 2>&1 || true
 
           for f in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
             [ -f "$f" ] && echo performance | sudo tee "$f" >/dev/null 2>&1 || true
@@ -129,11 +106,9 @@ jobs:
           ulimit -n 1048576 2>/dev/null || true
           ulimit -s unlimited 2>/dev/null || true
 
-          echo "[SWAP] Création ${SWAP_SIZE_GB}G..."
           if ! swapon --show | grep -q /swapfile 2>/dev/null; then
             sudo fallocate -l "${SWAP_SIZE_GB}G" /swapfile 2>/dev/null \
-              || sudo dd if=/dev/zero of=/swapfile bs=1M \
-                   count=$(( SWAP_SIZE_GB * 1024 )) status=none
+              || sudo dd if=/dev/zero of=/swapfile bs=1M count=$(( SWAP_SIZE_GB * 1024 )) status=none
             sudo chmod 600 /swapfile
             sudo mkswap /swapfile >/dev/null
             sudo swapon /swapfile
@@ -142,7 +117,6 @@ jobs:
 
           JAVA_BIN="/usr/lib/jvm/temurin-21-jdk-amd64/bin/java"
           if [ ! -f "$JAVA_BIN" ]; then
-            echo "[JAVA] Installation Temurin 21..."
             wget -qO - https://packages.adoptium.net/artifactory/api/gpg/key/public \
               | sudo gpg --dearmor \
               | sudo tee /etc/apt/trusted.gpg.d/adoptium.gpg >/dev/null
@@ -158,32 +132,22 @@ jobs:
           pip3 install -q --no-cache-dir discord.py aiohttp 2>/dev/null || true
 
           RAM_MB=$(awk '/MemTotal/{print int($2/1024)}' /proc/meminfo)
-          echo "════════════════════════════════════"
-          echo "  OS   : $(uname -r)"
-          echo "  RAM  : ${RAM_MB} MB"
-          echo "  CPUs : $(nproc)"
-          echo "  Swap : $(free -h | awk '/Swap/{print $2}')"
-          echo "  Disk : $(df -h . | tail -1 | awk '{print $4}') libre"
-          echo "════════════════════════════════════"
+          echo "OS   : $(uname -r)"
+          echo "RAM  : ${RAM_MB} MB"
+          echo "CPUs : $(nproc)"
+          echo "Swap : $(free -h | awk '/Swap/{print $2}')"
+          echo "Disk : $(df -h . | tail -1 | awk '{print $4}') libre"
 
-# ──────────────────────────────────────────────────────────────────────────────
-# 4. RESTORE DRIVE
-# ──────────────────────────────────────────────────────────────────────────────
       - name: Restore Drive
         run: |
           set -uo pipefail
-          echo "════════════════════════════════════"
-          echo "  RESTORE DRIVE"
-          echo "════════════════════════════════════"
 
           rclone_dl() {
             local src="$1" dst="${2:-.}"
-            echo "[DL] ${src}..."
             rclone copy "rclone-mc:mc-backup/${src}" "${dst}" \
               --transfers=8 --multi-thread-streams=8 \
               --buffer-size=256M --retries=5 --low-level-retries=5 \
-              --timeout=120s \
-              2>/dev/null \
+              --timeout=120s 2>/dev/null \
               && echo "[DL] OK: ${src}" \
               || echo "[DL] ABSENT: ${src}"
           }
@@ -195,37 +159,22 @@ jobs:
           if [ -f worlds.tar.zst ]; then
             SIZE=$(stat -c%s worlds.tar.zst 2>/dev/null || echo 0)
             if [ "$SIZE" -gt 1000 ]; then
-              echo "[WORLDS] Extraction ($(du -sh worlds.tar.zst | cut -f1))..."
               if zstd -d -T0 --stdout worlds.tar.zst | tar -x --ignore-zeros; then
-                echo "[WORLDS] Extraits:"
-                find . -maxdepth 1 -mindepth 1 -type d \
-                  ! -name '.git' ! -name 'plugins' ! -name 'logs'      \
-                  ! -name 'cache' ! -name 'config' ! -name 'libraries'  \
-                  ! -name '.paper-remapped' ! -name 'crash-reports'     \
-                  ! -name 'debug' ! -name 'discord_bot' ! -name 'dashboard' \
-                  | while read -r d; do
-                    [ -f "$d/level.dat" ] && echo "  ↳ $(basename "$d")"
-                  done || true
+                echo "[WORLDS] Extraits OK"
               else
-                echo "[WORLDS] ⚠ Extraction échouée — démarrage vierge"
+                echo "[WORLDS] Extraction echouee — demarrage vierge"
               fi
             else
-              echo "[WORLDS] Archive trop petite (${SIZE}B) — ignorée"
+              echo "[WORLDS] Archive trop petite (${SIZE}B) — ignoree"
             fi
             rm -f worlds.tar.zst
           else
-            echo "[WORLDS] Aucun backup — démarrage vierge"
+            echo "[WORLDS] Aucun backup — demarrage vierge"
           fi
 
-# ──────────────────────────────────────────────────────────────────────────────
-# 5. PAPER JAR
-# ──────────────────────────────────────────────────────────────────────────────
       - name: Paper JAR
         run: |
           set -uo pipefail
-          echo "════════════════════════════════════"
-          echo "  PAPER JAR"
-          echo "════════════════════════════════════"
 
           MIN_SIZE=10000000
 
@@ -236,60 +185,48 @@ jobs:
               echo "eula=true" > eula.txt
               exit 0
             fi
-            echo "[JAR] Corrompu (${SIZE}B) — re-téléchargement"
             rm -f server.jar
           fi
 
-          echo "[JAR] Récupération dernière build Paper ${MC_VERSION}..."
           BUILDS_JSON=$(curl -sf \
             "https://api.papermc.io/v2/projects/paper/versions/${MC_VERSION}/builds" \
             || echo '{"builds":[]}')
 
-          LATEST_BUILD=$(printf '%s' "$BUILDS_JSON" \
-            | python3 -c "
-import sys, json
-builds = json.load(sys.stdin).get('builds', [])
-stable = [b for b in builds if b.get('channel','') == 'default']
-if stable:
-    print(stable[-1]['build'])
-elif builds:
-    print(builds[-1]['build'])
-else:
-    print('225')
-" 2>/dev/null || echo "225")
+          LATEST_BUILD=$(printf '%s' "$BUILDS_JSON" | python3 -c "
+          import sys, json
+          builds = json.load(sys.stdin).get('builds', [])
+          stable = [b for b in builds if b.get('channel','') == 'default']
+          if stable:
+              print(stable[-1]['build'])
+          elif builds:
+              print(builds[-1]['build'])
+          else:
+              print('225')
+          " 2>/dev/null || echo "225")
 
           JAR_NAME="paper-${MC_VERSION}-${LATEST_BUILD}.jar"
           DL_URL="https://api.papermc.io/v2/projects/paper/versions/${MC_VERSION}/builds/${LATEST_BUILD}/downloads/${JAR_NAME}"
 
-          echo "[JAR] Téléchargement build #${LATEST_BUILD}..."
           if wget -q --show-progress -O server.jar "$DL_URL" 2>/dev/null; then
             SIZE=$(stat -c%s server.jar 2>/dev/null || echo 0)
             if [ "$SIZE" -gt "$MIN_SIZE" ]; then
               echo "[JAR] OK — $(du -sh server.jar | cut -f1)"
-              rclone copy server.jar rclone-mc:mc-backup/ \
-                --transfers=4 --retries=3 2>/dev/null &
+              rclone copy server.jar rclone-mc:mc-backup/ --transfers=4 --retries=3 2>/dev/null &
               disown
             else
-              echo "[JAR] ⚠ Download incomplet (${SIZE}B)"
+              echo "[JAR] Download incomplet (${SIZE}B)"
               exit 1
             fi
           else
-            echo "[JAR] ⚠ Échec download — fallback build 225"
             wget -q -O server.jar \
               "https://api.papermc.io/v2/projects/paper/versions/${MC_VERSION}/builds/225/downloads/paper-${MC_VERSION}-225.jar"
           fi
 
           echo "eula=true" > eula.txt
 
-# ──────────────────────────────────────────────────────────────────────────────
-# 6. APPLIQUER REPO
-# ──────────────────────────────────────────────────────────────────────────────
       - name: Appliquer repo
         run: |
           set -uo pipefail
-          echo "════════════════════════════════════"
-          echo "  APPLICATION REPO"
-          echo "════════════════════════════════════"
 
           mkdir -p plugins
 
@@ -301,10 +238,9 @@ else:
             esac
             cp -f "$jar" "plugins/${name}"
             JARS=$(( JARS + 1 ))
-            echo "  [JAR] ${name}"
           done < <(find /tmp/repo-snapshot -maxdepth 1 -name "*.jar" \
             ! -name "server.jar" ! -name "playit*" 2>/dev/null)
-          echo "[PLUGINS] ${JARS} JARs copiés"
+          echo "[PLUGINS] ${JARS} JARs copies"
 
           CFGS=0
           while IFS= read -r src; do
@@ -319,73 +255,55 @@ else:
             [ -n "$dst_dir" ] && [ "$dst_dir" != "." ] && mkdir -p "$dst_dir"
             cp -f "$src" "$rel" 2>/dev/null && CFGS=$(( CFGS + 1 )) || true
           done < <(find /tmp/repo-snapshot -type f 2>/dev/null)
-          echo "[CONFIGS] ${CFGS} fichiers appliqués"
+          echo "[CONFIGS] ${CFGS} fichiers appliques"
 
           echo "eula=true" > eula.txt
 
-          echo ""
-          echo "[PLUGINS] Liste finale:"
           find plugins -maxdepth 1 -name "*.jar" 2>/dev/null | sort | while read -r f; do
-            echo "  ↳ $(basename "$f") ($(du -sh "$f" | cut -f1))"
+            echo "  $(basename "$f") ($(du -sh "$f" | cut -f1))"
           done
 
-# ──────────────────────────────────────────────────────────────────────────────
-# 7. PLAYIT (tunnel)
-# ──────────────────────────────────────────────────────────────────────────────
       - name: Playit
         run: |
           set -uo pipefail
-          echo "════════════════════════════════════"
-          echo "  PLAYIT TUNNEL"
-          echo "════════════════════════════════════"
 
           chmod +x ./playit-linux-amd64
           printf '%s' '${{ secrets.PLAYIT_SECRET }}' > playit.toml
 
-          RUST_LOG=warn ./playit-linux-amd64 --secret_path playit.toml \
-            > /tmp/playit.log 2>&1 &
+          RUST_LOG=warn ./playit-linux-amd64 --secret_path playit.toml > /tmp/playit.log 2>&1 &
           PLAYIT_PID=$!
-          echo "[PLAYIT] PID=${PLAYIT_PID}"
 
           for i in $(seq 1 45); do
             sleep 1
-            if grep -qiE "connected|tunnel|ready|online|agent" \
-                /tmp/playit.log 2>/dev/null; then
-              echo "[PLAYIT] Connecté en ${i}s ✓"
+            if grep -qiE "connected|tunnel|ready|online|agent" /tmp/playit.log 2>/dev/null; then
+              echo "[PLAYIT] Connecte en ${i}s"
               break
             fi
             if ! kill -0 "$PLAYIT_PID" 2>/dev/null; then
-              echo "[PLAYIT] ⚠ Processus mort"
+              echo "[PLAYIT] Processus mort"
               cat /tmp/playit.log || true
               break
             fi
-            [ $(( i % 10 )) -eq 0 ] && echo "[PLAYIT] Attente... ${i}s"
           done
 
-# ──────────────────────────────────────────────────────────────────────────────
-# 8. MINECRAFT + BOT + DASHBOARD
-# ──────────────────────────────────────────────────────────────────────────────
       - name: Minecraft + Bot + Dashboard
         env:
-          FINE_GRAINED_PAT:   ${{ secrets.FINE_GRAINED_PAT }}
-          REPO:               ${{ github.repository }}
-          RUN_ID:             ${{ github.run_id }}
-          DISCORD_BOT_TOKEN:  ${{ secrets.DISCORD_BOT_TOKEN }}
-          DISCORD_GUILD_ID:   ${{ secrets.DISCORD_GUILD_ID }}
+          FINE_GRAINED_PAT: ${{ secrets.FINE_GRAINED_PAT }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_GUILD_ID: ${{ secrets.DISCORD_GUILD_ID }}
           DISCORD_CHANNEL_ID: ${{ secrets.DISCORD_CHANNEL_ID }}
-          GITHUB_PAT:         ${{ secrets.FINE_GRAINED_PAT }}
-          GITHUB_REPO:        ${{ github.repository }}
-          STATS_GIST_ID:      ${{ secrets.STATS_GIST_ID }}
-          MC_EVENT_FILE:      /tmp/mc_events.jsonl
-          MC_PIPE:            /tmp/mc_input
-          MC_STATS_FILE:      /tmp/mc_stats.txt
-          MC_LOG:             /home/runner/work/java-project/java-project/mc.log
+          GITHUB_PAT: ${{ secrets.FINE_GRAINED_PAT }}
+          GITHUB_REPO: ${{ github.repository }}
+          STATS_GIST_ID: ${{ secrets.STATS_GIST_ID }}
+          MC_EVENT_FILE: /tmp/mc_events.jsonl
+          MC_PIPE: /tmp/mc_input
+          MC_STATS_FILE: /tmp/mc_stats.txt
+          MC_LOG: /home/runner/work/java-project/java-project/mc.log
         run: |
           set -uo pipefail
 
-          # ════════════════════════════════════════════════════════════════
-          #  VARIABLES GLOBALES
-          # ════════════════════════════════════════════════════════════════
           JAVA="/usr/lib/jvm/temurin-21-jdk-amd64/bin/java"
           MC_LOG_REL="mc.log"
           MC_LOG_ABS="/home/runner/work/java-project/java-project/mc.log"
@@ -396,8 +314,7 @@ else:
           LOCK_GIT="/tmp/git.lock"
           STOPPED_CLEANLY="/tmp/mc_stopped_cleanly"
           WORLD_REF="/tmp/world_ref.txt"
-          WORLD_BLACKLIST="plugins logs cache config libraries
-            .git .paper-remapped crash-reports debug discord_bot dashboard"
+          WORLD_BLACKLIST="plugins logs cache config libraries .git .paper-remapped crash-reports debug discord_bot dashboard"
 
           CPUS=$(nproc)
           RAM_KB=$(awk '/MemTotal/{print $2}' /proc/meminfo)
@@ -425,16 +342,6 @@ else:
           LIVE_PID=0
           WATCHER_PID=0
 
-          echo "════════════════════════════════════"
-          echo "  RAM:  ${RAM_MB}MB"
-          echo "  JVM:  ${JVM}"
-          echo "  CPUs: ${CPUS}"
-          echo "════════════════════════════════════"
-
-          # ════════════════════════════════════════════════════════════════
-          #  UTILITAIRES
-          # ════════════════════════════════════════════════════════════════
-
           log() {
             printf '[%s] %s\n' "$(date '+%H:%M:%S')" "$*"
           }
@@ -456,10 +363,6 @@ else:
               | grep -qiE "All dimensions are saved|Stopping server|Saving players"
           }
 
-          # ════════════════════════════════════════════════════════════════
-          #  GITHUB API
-          # ════════════════════════════════════════════════════════════════
-
           gh_dispatch() {
             curl -sf -X POST \
               -H "Authorization: token ${FINE_GRAINED_PAT}" \
@@ -467,7 +370,7 @@ else:
               "https://api.github.com/repos/${REPO}/actions/workflows/server.yml/dispatches" \
               -d '{"ref":"main"}' >/dev/null \
               && log "[GH] Dispatch OK" \
-              || log "[GH] Dispatch échoué"
+              || log "[GH] Dispatch echoue"
           }
 
           gh_cancel() {
@@ -476,92 +379,75 @@ else:
               -H "Accept: application/vnd.github.v3+json" \
               "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/cancel" \
               >/dev/null \
-              && log "[GH] Run annulé" \
-              || log "[GH] Annulation échouée"
+              && log "[GH] Run annule" \
+              || log "[GH] Annulation echouee"
           }
-
-          # ════════════════════════════════════════════════════════════════
-          #  GIST STATS
-          # ════════════════════════════════════════════════════════════════
 
           push_gist() {
             local STATUS="$1"
             [ -z "${STATS_GIST_ID:-}" ] && return 0
-
             local STATS_LINE=""
             [ -f "$STATS_FILE" ] && STATS_LINE=$(cat "$STATS_FILE" 2>/dev/null || true)
-
             python3 - <<PYEOF
-import json, os, urllib.request, urllib.error, datetime
-
-gist_id    = os.environ.get('STATS_GIST_ID', '')
-pat        = os.environ.get('FINE_GRAINED_PAT', '')
-status     = '${STATUS}'
-stats_line = '${STATS_LINE}'
-event_file = '${EVENT_FILE}'
-
-if not gist_id or not pat:
-    exit(0)
-
-parts = {}
-for part in stats_line.split(';'):
-    if '=' in part:
-        k, v = part.split('=', 1)
-        parts[k] = v
-
-players = []
-try:
-    pset = set()
-    with open(event_file) as f:
-        for line in f:
-            try:
-                ev = json.loads(line.strip())
-                t  = ev.get('type', '')
-                if t == 'join':  pset.add(ev.get('player', ''))
-                elif t == 'quit': pset.discard(ev.get('player', ''))
-                elif t == 'start': pset.clear()
-            except: pass
-    players = sorted(pset)
-except: pass
-
-stats = {
-    'status':    status,
-    'timestamp': parts.get('TS', 'N/A'),
-    'cpu':       parts.get('CPU', 'N/A'),
-    'ram':       parts.get('RAM', 'N/A'),
-    'swap':      parts.get('SWAP', 'N/A'),
-    'disk':      parts.get('DISK', 'N/A'),
-    'tps':       parts.get('TPS', 'N/A'),
-    'online':    len(players),
-    'players':   players,
-    'updated':   datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
-}
-
-payload = json.dumps({
-    'files': {
-        'mc-stats.json': {'content': json.dumps(stats, ensure_ascii=False)}
-    }
-}).encode()
-
-req = urllib.request.Request(
-    f'https://api.github.com/gists/{gist_id}',
-    data=payload, method='PATCH',
-    headers={
-        'Authorization': f'token {pat}',
-        'Accept': 'application/vnd.github.v3+json',
-        'Content-Type': 'application/json',
-    }
-)
-try:
-    urllib.request.urlopen(req, timeout=10)
-except Exception as e:
-    print(f'[GIST] Erreur: {e}')
-PYEOF
+          import json, os, urllib.request, urllib.error, datetime
+          gist_id    = os.environ.get('STATS_GIST_ID', '')
+          pat        = os.environ.get('FINE_GRAINED_PAT', '')
+          status     = '${STATUS}'
+          stats_line = '${STATS_LINE}'
+          event_file = '${EVENT_FILE}'
+          if not gist_id or not pat:
+              exit(0)
+          parts = {}
+          for part in stats_line.split(';'):
+              if '=' in part:
+                  k, v = part.split('=', 1)
+                  parts[k] = v
+          players = []
+          try:
+              pset = set()
+              with open(event_file) as f:
+                  for line in f:
+                      try:
+                          ev = json.loads(line.strip())
+                          t  = ev.get('type', '')
+                          if t == 'join':   pset.add(ev.get('player', ''))
+                          elif t == 'quit': pset.discard(ev.get('player', ''))
+                          elif t == 'start': pset.clear()
+                      except: pass
+              players = sorted(pset)
+          except: pass
+          stats = {
+              'status':    status,
+              'timestamp': parts.get('TS', 'N/A'),
+              'cpu':       parts.get('CPU', 'N/A'),
+              'ram':       parts.get('RAM', 'N/A'),
+              'swap':      parts.get('SWAP', 'N/A'),
+              'disk':      parts.get('DISK', 'N/A'),
+              'tps':       parts.get('TPS', 'N/A'),
+              'online':    len(players),
+              'players':   players,
+              'updated':   datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
           }
-
-          # ════════════════════════════════════════════════════════════════
-          #  WORLDS
-          # ════════════════════════════════════════════════════════════════
+          payload = json.dumps({
+              'files': {
+                  'mc-stats.json': {'content': json.dumps(stats, ensure_ascii=False)}
+              }
+          }).encode()
+          req = urllib.request.Request(
+              f'https://api.github.com/gists/{gist_id}',
+              data=payload, method='PATCH',
+              headers={
+                  'Authorization': f'token {pat}',
+                  'Accept': 'application/vnd.github.v3+json',
+                  'Content-Type': 'application/json',
+              }
+          )
+          try:
+              urllib.request.urlopen(req, timeout=10)
+          except Exception as e:
+              print(f'[GIST] Erreur: {e}')
+          PYEOF
+          }
 
           get_world_dirs() {
             local DIRS=""
@@ -581,103 +467,72 @@ PYEOF
           world_changed() {
             local DIRS="$1"
             [ -z "$DIRS" ] && echo "0" && return
-            # shellcheck disable=SC2086
             find $DIRS -name "*.mca" -newer "$WORLD_REF" 2>/dev/null | wc -l
           }
-
-          # ════════════════════════════════════════════════════════════════
-          #  BACKUP
-          # ════════════════════════════════════════════════════════════════
 
           backup() {
             local LABEL="${1:-periodic}"
             local FORCE="${2:-0}"
-
             if [ -f "$LOCK_BACKUP" ]; then
-              log "[BACKUP] Déjà en cours — skip"
+              log "[BACKUP] Deja en cours — skip"
               return 0
             fi
             touch "$LOCK_BACKUP"
-
             local T0
             T0=$(date +%s)
-            log "[BACKUP:${LABEL}] Début..."
-
             mc_cmd "save-all flush" 2>/dev/null || true
             sleep 4
-
             local WORLD_DIRS
             WORLD_DIRS=$(get_world_dirs)
-
             if [ -z "$WORLD_DIRS" ]; then
-              log "[BACKUP] Aucun monde détecté"
+              log "[BACKUP] Aucun monde detecte"
               rm -f "$LOCK_BACKUP"
               return 0
             fi
-
-            log "[BACKUP] Mondes:${WORLD_DIRS}"
-
             local CHANGED
             CHANGED=$(world_changed "$WORLD_DIRS")
-
             if [ "$FORCE" = "0" ] && [ "$CHANGED" -eq 0 ]; then
               log "[BACKUP] Aucun changement — skip"
               rm -f "$LOCK_BACKUP"
               return 0
             fi
-
-            log "[BACKUP] ${CHANGED} chunks modifiés — compression..."
-
             local ARCHIVE="/tmp/worlds_$$.tar.zst"
-            # shellcheck disable=SC2086
             if tar -cf - \
                 --exclude='*/session.lock' \
-                --exclude='*/poi/*'        \
-                --exclude='level.dat_old'  \
-                --exclude='*.lck'          \
-                $WORLD_DIRS 2>/dev/null    \
+                --exclude='*/poi/*' \
+                --exclude='level.dat_old' \
+                --exclude='*.lck' \
+                $WORLD_DIRS 2>/dev/null \
               | zstd -19 -T0 --long=27 -fo "$ARCHIVE"; then
-
               local SZ
               SZ=$(du -sh "$ARCHIVE" | cut -f1)
               log "[BACKUP] Archive: ${SZ} — Upload..."
-
               rclone copy "$ARCHIVE" rclone-mc:mc-backup/ \
                 --transfers=8 --multi-thread-streams=8 \
                 --buffer-size=256M --retries=5 --checksum \
                 2>/dev/null \
                 && log "[BACKUP] Upload OK" \
-                || log "[BACKUP] ⚠ Upload échoué"
-
+                || log "[BACKUP] Upload echoue"
               rclone moveto \
                 "rclone-mc:mc-backup/$(basename "$ARCHIVE")" \
                 "rclone-mc:mc-backup/worlds.tar.zst" \
                 2>/dev/null || true
-
               touch "$WORLD_REF"
             else
-              log "[BACKUP] ⚠ Compression échouée"
+              log "[BACKUP] Compression echouee"
             fi
-
             rm -f "$ARCHIVE" "$LOCK_BACKUP"
-            log "[BACKUP:${LABEL}] Terminé en $(( $(date +%s) - T0 ))s"
+            log "[BACKUP:${LABEL}] Termine en $(( $(date +%s) - T0 ))s"
           }
-
-          # ════════════════════════════════════════════════════════════════
-          #  GIT SYNC
-          # ════════════════════════════════════════════════════════════════
 
           git_sync() {
             if [ -f "$LOCK_GIT" ]; then
-              log "[GIT] Déjà en cours — skip"
+              log "[GIT] Deja en cours — skip"
               return 0
             fi
             touch "$LOCK_GIT"
-
-            log "[GIT] Sync..."
             git config user.name  "MC Server Bot"
             git config user.email "bot@mc-server.local"
-
             local SYNC_DIRS=(
               plugins/Essentials plugins/spark plugins/bStats
               plugins/CustomNPCs plugins/HeadDatabase
@@ -685,7 +540,6 @@ PYEOF
               plugins/Chunky plugins/WorldManager
               plugins/LuckPerms
             )
-
             for dir in "${SYNC_DIRS[@]}"; do
               [ -d "$dir" ] || continue
               find "$dir" -type f \
@@ -694,10 +548,8 @@ PYEOF
                   git add "$f" 2>/dev/null || true
                 done
             done
-
             git add ops.json whitelist.json banned-players.json \
               banned-ips.json server.properties 2>/dev/null || true
-
             if ! git diff --cached --quiet 2>/dev/null; then
               local STAMP
               STAMP=$(date '+%Y-%m-%d %H:%M:%S')
@@ -706,23 +558,18 @@ PYEOF
                   "https://x-access-token:${FINE_GRAINED_PAT}@github.com/${REPO}.git" \
                   HEAD:main --force 2>/dev/null \
                   && log "[GIT] Push OK" \
-                  || log "[GIT] ⚠ Push échoué"
+                  || log "[GIT] Push echoue"
               fi
             else
-              log "[GIT] Rien à committer"
+              log "[GIT] Rien a committer"
             fi
             rm -f "$LOCK_GIT"
           }
-
-          # ════════════════════════════════════════════════════════════════
-          #  MONITORING
-          # ════════════════════════════════════════════════════════════════
 
           monitor_loop() {
             local RAM_TOTAL_KB
             RAM_TOTAL_KB=$(awk '/MemTotal/{print $2}' /proc/meminfo)
             local RAM_TOTAL_MB=$(( RAM_TOTAL_KB / 1024 ))
-
             while true; do
               local L1 L2
               L1=$(grep '^cpu ' /proc/stat 2>/dev/null || echo "cpu 0 0 0 0 0 0 0")
@@ -736,52 +583,42 @@ PYEOF
                 dt=t2-t1; di=id2-id1
                 printf "%d",(dt>0)?100-int(di*100/dt):0
               }')
-
               local MF MU MP SW
               MF=$(awk '/MemAvailable/{print $2+0}' /proc/meminfo)
               MU=$(( (RAM_TOTAL_KB - MF) / 1024 ))
               MP=$(( (RAM_TOTAL_KB - MF) * 100 / RAM_TOTAL_KB ))
               SW=$(free -m 2>/dev/null | awk '/Swap/{print $3+0}')
-
               local DK
               DK=$(df -h . 2>/dev/null | awk 'NR==2{print $5}')
-
               local TP
               TP=$(grep -oP '(?<=TPS from last 1m, 5m, 15m: )[\d.]+' \
                 "$MC_LOG_REL" 2>/dev/null | tail -1 || true)
               [ -z "$TP" ] && TP="N/A"
-
               local ONL=0
               if [ -f "$EVENT_FILE" ]; then
                 ONL=$(python3 -c "
-import json
-players = set()
-try:
-  with open('${EVENT_FILE}') as f:
-    for line in f:
-      try:
-        ev = json.loads(line.strip())
-        t = ev.get('type','')
-        if t=='join': players.add(ev.get('player',''))
-        elif t=='quit': players.discard(ev.get('player',''))
-        elif t=='start': players.clear()
-      except: pass
-except: pass
-print(len(players))
-" 2>/dev/null || echo 0)
+          import json
+          players = set()
+          try:
+            with open('${EVENT_FILE}') as f:
+              for line in f:
+                try:
+                  ev = json.loads(line.strip())
+                  t = ev.get('type','')
+                  if t=='join': players.add(ev.get('player',''))
+                  elif t=='quit': players.discard(ev.get('player',''))
+                  elif t=='start': players.clear()
+                except: pass
+          except: pass
+          print(len(players))
+          " 2>/dev/null || echo 0)
               fi
-
               printf 'TS=%s;CPU=%s%%;RAM=%sMB/%sMB(%s%%);SWAP=%sMB;DISK=%s;TPS=%s;ONL=%s\n' \
                 "$(date '+%H:%M:%S')" "$CPU" "$MU" "$RAM_TOTAL_MB" \
                 "$MP" "$SW" "$DK" "$TP" "$ONL" > "$STATS_FILE"
-
               sleep 8
             done
           }
-
-          # ════════════════════════════════════════════════════════════════
-          #  LIVE LOGS
-          # ════════════════════════════════════════════════════════════════
 
           live_logs() {
             while [ ! -f "$MC_LOG_REL" ]; do sleep 1; done
@@ -790,121 +627,92 @@ print(len(players))
             done
           }
 
-          # ════════════════════════════════════════════════════════════════
-          #  AFFICHAGE STATS
-          # ════════════════════════════════════════════════════════════════
-
           show_stats() {
-            echo "════════════════════════════════════"
             if [ -f "$STATS_FILE" ]; then
               local D
               D=$(cat "$STATS_FILE")
-              printf '  %-8s %s\n' "Heure:"  "$(echo "$D" | grep -oP 'TS=\K[^;]+')"
-              printf '  %-8s %s\n' "CPU:"    "$(echo "$D" | grep -oP 'CPU=\K[^;]+')"
-              printf '  %-8s %s\n' "RAM:"    "$(echo "$D" | grep -oP 'RAM=\K[^;]+')"
-              printf '  %-8s %s\n' "Swap:"   "$(echo "$D" | grep -oP 'SWAP=\K[^;]+')"
-              printf '  %-8s %s\n' "Disque:" "$(echo "$D" | grep -oP 'DISK=\K[^;]+')"
-              printf '  %-8s %s\n' "TPS:"    "$(echo "$D" | grep -oP 'TPS=\K[^;]+')"
-              printf '  %-8s %s\n' "Online:" "$(echo "$D" | grep -oP 'ONL=\K[^;]+') joueurs"
-              printf '  %-8s %s\n' "JVM:"    "${JVM}"
-              printf '  %-8s %s\n' "Uptime:" "$(( ($(date +%s) - T_START) / 60 ))min"
-            else
-              echo "  Stats non disponibles"
+              printf '[STATS] CPU=%s RAM=%s TPS=%s ONL=%s UPTIME=%smin\n' \
+                "$(echo "$D" | grep -oP 'CPU=\K[^;]+')" \
+                "$(echo "$D" | grep -oP 'RAM=\K[^;]+')" \
+                "$(echo "$D" | grep -oP 'TPS=\K[^;]+')" \
+                "$(echo "$D" | grep -oP 'ONL=\K[^;]+')" \
+                "$(( ($(date +%s) - T_START) / 60 ))"
             fi
-            echo "════════════════════════════════════"
           }
 
-          # ════════════════════════════════════════════════════════════════
-          #  AVERTISSEMENT REDÉMARRAGE
-          # ════════════════════════════════════════════════════════════════
-
           warn_restart() {
-            mc_cmd "say §c[Serveur] Redémarrage automatique dans 60 secondes !"
+            mc_cmd "say §c[Serveur] Redemarrage automatique dans 60 secondes !"
             sleep 30
-            mc_cmd "say §c[Serveur] Redémarrage dans 30 secondes !"
+            mc_cmd "say §c[Serveur] Redemarrage dans 30 secondes !"
             sleep 20
-            mc_cmd "say §c[Serveur] Redémarrage dans 10 secondes !"
+            mc_cmd "say §c[Serveur] Redemarrage dans 10 secondes !"
             sleep 1
             for N in 9 8 7 6 5 4 3 2 1; do
               mc_cmd "say §c[Serveur] ${N}..."
               sleep 1
             done
-            mc_cmd "say §c[Serveur] Redémarrage en cours !"
+            mc_cmd "say §c[Serveur] Redemarrage en cours !"
           }
 
-          # ════════════════════════════════════════════════════════════════
-          #  DÉMARRAGE MINECRAFT
-          # ════════════════════════════════════════════════════════════════
-
           start_mc() {
-            log "[MC] Démarrage JVM=${JVM} CPUs=${CPUS}..."
+            log "[MC] Demarrage JVM=${JVM} CPUs=${CPUS}..."
             tail -f "$MC_PIPE" 2>/dev/null | \
             "$JAVA" \
-              -Xms${JVM} -Xmx${JVM}                        \
-              -XX:+UseG1GC                                  \
-              -XX:+ParallelRefProcEnabled                   \
-              -XX:MaxGCPauseMillis=200                      \
-              -XX:+UnlockExperimentalVMOptions              \
-              -XX:+DisableExplicitGC                        \
-              -XX:+AlwaysPreTouch                           \
-              -XX:G1NewSizePercent=30                       \
-              -XX:G1MaxNewSizePercent=40                    \
-              -XX:G1HeapRegionSize=32M                      \
-              -XX:G1ReservePercent=15                       \
-              -XX:G1HeapWastePercent=5                      \
-              -XX:G1MixedGCCountTarget=4                    \
-              -XX:InitiatingHeapOccupancyPercent=15         \
-              -XX:G1MixedGCLiveThresholdPercent=90          \
-              -XX:G1RSetUpdatingPauseTimePercent=5          \
-              -XX:SurvivorRatio=32                          \
-              -XX:MaxTenuringThreshold=1                    \
-              -XX:+PerfDisableSharedMem                     \
-              -XX:ConcGCThreads=${CPUS}                     \
-              -XX:ParallelGCThreads=${CPUS}                 \
-              -XX:+UseStringDeduplication                   \
-              -XX:ReservedCodeCacheSize=512m                \
-              -XX:+OptimizeStringConcat                     \
-              -XX:+UseCompressedOops                        \
-              -XX:+UseCompressedClassPointers               \
-              -XX:+HeapDumpOnOutOfMemoryError               \
-              -XX:HeapDumpPath=/tmp/mc-oom-$$.hprof         \
-              -XX:+ExitOnOutOfMemoryError                   \
-              -Dpaper.watchdog.earlyWarningDelay=300000     \
-              -Dpaper.watchdog.earlyWarningEvery=60000      \
-              -Dpaper.maxChunkThreads=${CPUS}               \
-              -Dpaper.log-level=INFO                        \
-              -DPaper.WorkerThreadCount=${CPUS}             \
-              -Djava.net.preferIPv4Stack=true               \
-              -Dfile.encoding=UTF-8                         \
-              -Daikars.new.flags=true                       \
-              -jar server.jar nogui                         \
+              -Xms${JVM} -Xmx${JVM} \
+              -XX:+UseG1GC \
+              -XX:+ParallelRefProcEnabled \
+              -XX:MaxGCPauseMillis=200 \
+              -XX:+UnlockExperimentalVMOptions \
+              -XX:+DisableExplicitGC \
+              -XX:+AlwaysPreTouch \
+              -XX:G1NewSizePercent=30 \
+              -XX:G1MaxNewSizePercent=40 \
+              -XX:G1HeapRegionSize=32M \
+              -XX:G1ReservePercent=15 \
+              -XX:G1HeapWastePercent=5 \
+              -XX:G1MixedGCCountTarget=4 \
+              -XX:InitiatingHeapOccupancyPercent=15 \
+              -XX:G1MixedGCLiveThresholdPercent=90 \
+              -XX:G1RSetUpdatingPauseTimePercent=5 \
+              -XX:SurvivorRatio=32 \
+              -XX:MaxTenuringThreshold=1 \
+              -XX:+PerfDisableSharedMem \
+              -XX:ConcGCThreads=${CPUS} \
+              -XX:ParallelGCThreads=${CPUS} \
+              -XX:+UseStringDeduplication \
+              -XX:ReservedCodeCacheSize=512m \
+              -XX:+OptimizeStringConcat \
+              -XX:+UseCompressedOops \
+              -XX:+UseCompressedClassPointers \
+              -XX:+HeapDumpOnOutOfMemoryError \
+              -XX:HeapDumpPath=/tmp/mc-oom-$$.hprof \
+              -XX:+ExitOnOutOfMemoryError \
+              -Dpaper.watchdog.earlyWarningDelay=300000 \
+              -Dpaper.watchdog.earlyWarningEvery=60000 \
+              -Dpaper.maxChunkThreads=${CPUS} \
+              -Dpaper.log-level=INFO \
+              -DPaper.WorkerThreadCount=${CPUS} \
+              -Djava.net.preferIPv4Stack=true \
+              -Dfile.encoding=UTF-8 \
+              -Daikars.new.flags=true \
+              -jar server.jar nogui \
               >> "$MC_LOG_REL" 2>&1 &
             echo $!
           }
 
-          # ════════════════════════════════════════════════════════════════
-          #  ARRÊT PROPRE
-          # ════════════════════════════════════════════════════════════════
-
           graceful_shutdown() {
             local REASON="${1:-manual}"
-            log "[SHUTDOWN] Arrêt propre (${REASON})..."
-
+            log "[SHUTDOWN] Arret propre (${REASON})..."
             backup "shutdown-${REASON}" "1" &
             local BP=$!
             git_sync &
             local GP=$!
-
             push_gist "offline" &
-
             wait $BP $GP 2>/dev/null || true
-
             emit_event '{"type":"stop"}'
-
             for PID in "$MONITOR_PID" "$LIVE_PID" "$WATCHER_PID" "$BOT_PID"; do
               [ "$PID" -gt 0 ] && kill "$PID" 2>/dev/null || true
             done
-
             echo "GRACEFUL" > "$STOPPED_CLEANLY"
             log "[SHUTDOWN] Propre — annulation du run..."
             sleep 5
@@ -913,20 +721,12 @@ print(len(players))
             exit 0
           }
 
-          # ════════════════════════════════════════════════════════════════
-          #  INIT FICHIERS
-          # ════════════════════════════════════════════════════════════════
-
           rm -f "$MC_PIPE" "$STOPPED_CLEANLY" "$LOCK_BACKUP" "$LOCK_GIT"
           mkfifo "$MC_PIPE"
           > "$MC_LOG_REL"
           touch "$WORLD_REF" "$EVENT_FILE"
 
-          # ════════════════════════════════════════════════════════════════
-          #  DÉMARRAGE BOT DISCORD
-          # ════════════════════════════════════════════════════════════════
-
-          log "[BOT] Démarrage..."
+          log "[BOT] Demarrage..."
           python3 discord_bot/bot.py > /tmp/bot.log 2>&1 &
           BOT_PID=$!
           log "[BOT] PID=${BOT_PID}"
@@ -934,19 +734,15 @@ print(len(players))
           for i in $(seq 1 30); do
             sleep 1
             if grep -q "Connecte:" /tmp/bot.log 2>/dev/null; then
-              log "[BOT] Connecté en ${i}s ✓"
+              log "[BOT] Connecte en ${i}s"
               break
             fi
             if ! kill -0 "$BOT_PID" 2>/dev/null; then
-              log "[BOT] ⚠ Mort au démarrage"
+              log "[BOT] Mort au demarrage"
               cat /tmp/bot.log || true
               break
             fi
           done
-
-          # ════════════════════════════════════════════════════════════════
-          #  DÉMARRAGE MC
-          # ════════════════════════════════════════════════════════════════
 
           MC_PID=$(start_mc)
           log "[MC] PID=${MC_PID}"
@@ -955,20 +751,16 @@ print(len(players))
           for i in $(seq 1 180); do
             sleep 2
             if grep -q "Done" "$MC_LOG_REL" 2>/dev/null; then
-              log "[MC] Prêt en $(( i * 2 ))s ✓"
+              log "[MC] Pret en $(( i * 2 ))s"
               MC_READY=1
               break
             fi
             if ! mc_alive; then
-              log "[MC] ⚠ Mort pendant le démarrage"
+              log "[MC] Mort pendant le demarrage"
               break
             fi
-            [ $(( i % 15 )) -eq 0 ] && log "[MC] Démarrage... ${i}x2s"
+            [ $(( i % 15 )) -eq 0 ] && log "[MC] Demarrage... ${i}x2s"
           done
-
-          # ════════════════════════════════════════════════════════════════
-          #  SERVICES ANNEXES
-          # ════════════════════════════════════════════════════════════════
 
           monitor_loop & MONITOR_PID=$!
           live_logs    & LIVE_PID=$!
@@ -981,11 +773,7 @@ print(len(players))
           emit_event "{\"type\":\"start\",\"jvm\":\"${JVM}\",\"cpus\":\"${CPUS}\"}"
           push_gist "online" &
 
-          # ════════════════════════════════════════════════════════════════
-          #  BOUCLE PRINCIPALE
-          # ════════════════════════════════════════════════════════════════
-
-          log "[MAIN] Boucle principale démarrée"
+          log "[MAIN] Boucle principale demarree"
 
           while true; do
             sleep 20
@@ -994,90 +782,75 @@ print(len(players))
             ELAPSED=$(( NOW - T_START ))
             ELAPSED_MIN=$(( ELAPSED / 60 ))
 
-            # ── Stats périodiques ─────────────────────────────────────
             if [ $(( LOOP % 9 )) -eq 0 ]; then
               show_stats
             fi
 
-            # ── Gist Dashboard ────────────────────────────────────────
             if [ $(( NOW - T_GIST )) -ge 15 ]; then
               push_gist "online" &
               T_GIST=$NOW
             fi
 
-            # ── Watchdog Bot Discord ──────────────────────────────────
             if ! kill -0 "$BOT_PID" 2>/dev/null; then
               BOT_RESTARTS=$(( BOT_RESTARTS + 1 ))
-              log "[BOT] ⚠ Mort — Relance #${BOT_RESTARTS}..."
+              log "[BOT] Mort — Relance #${BOT_RESTARTS}..."
               python3 discord_bot/bot.py >> /tmp/bot.log 2>&1 &
               BOT_PID=$!
-              log "[BOT] Nouveau PID=${BOT_PID}"
             fi
 
-            # ── Watchdog Watcher ──────────────────────────────────────
             if ! kill -0 "$WATCHER_PID" 2>/dev/null; then
               WATCHER_RESTARTS=$(( WATCHER_RESTARTS + 1 ))
-              log "[WATCHER] ⚠ Mort — Relance #${WATCHER_RESTARTS}..."
+              log "[WATCHER] Mort — Relance #${WATCHER_RESTARTS}..."
               MC_EVENT_FILE="$EVENT_FILE" \
                 python3 discord_bot/discord_watcher.py "$MC_LOG_ABS" \
                 >> /tmp/watcher.log 2>&1 &
               WATCHER_PID=$!
-              log "[WATCHER] Nouveau PID=${WATCHER_PID}"
             fi
 
-            # ── Watchdog Monitor ──────────────────────────────────────
             if ! kill -0 "$MONITOR_PID" 2>/dev/null; then
-              log "[MONITOR] ⚠ Relance..."
+              log "[MONITOR] Relance..."
               monitor_loop & MONITOR_PID=$!
             fi
 
-            # ── Backup périodique (toutes les 5min) ───────────────────
             if [ $(( NOW - T_BACKUP )) -ge 300 ]; then
               backup "periodic" "0" &
               T_BACKUP=$NOW
             fi
 
-            # ── Git sync (toutes les 15min) ───────────────────────────
             if [ $(( NOW - T_GIT )) -ge 900 ]; then
               git_sync &
               T_GIT=$NOW
             fi
 
-            # ── Avertissement redémarrage (~337min) ───────────────────
             if [ "$ELAPSED" -ge 20220 ] && [ "$WARNED" -eq 0 ]; then
               WARNED=1
               warn_restart &
             fi
 
-            # ── Vérification MC vivant ────────────────────────────────
             if ! mc_alive; then
-
               if was_graceful; then
-                log "[MC] Arrêt propre détecté (/stop)"
+                log "[MC] Arret propre detecte"
                 show_stats
                 graceful_shutdown "stop-command"
-
               else
                 CRASHES=$(( CRASHES + 1 ))
-                log "[MC] ⚠ CRASH #${CRASHES} détecté"
+                log "[MC] CRASH #${CRASHES} detecte"
                 show_stats
 
                 CRASH_CAUSE="Inconnue"
-                if grep -qiE "OutOfMemoryError"   "$MC_LOG_REL" 2>/dev/null; then CRASH_CAUSE="OutOfMemoryError"; fi
-                if grep -qiE "StackOverflowError" "$MC_LOG_REL" 2>/dev/null; then CRASH_CAUSE="StackOverflowError"; fi
-                if grep -qiE "Watchdog"           "$MC_LOG_REL" 2>/dev/null; then CRASH_CAUSE="Watchdog timeout"; fi
-                if grep -qiE "java.lang.Error"    "$MC_LOG_REL" 2>/dev/null; then CRASH_CAUSE="Java Error"; fi
+                grep -qiE "OutOfMemoryError"   "$MC_LOG_REL" 2>/dev/null && CRASH_CAUSE="OutOfMemoryError"
+                grep -qiE "StackOverflowError" "$MC_LOG_REL" 2>/dev/null && CRASH_CAUSE="StackOverflowError"
+                grep -qiE "Watchdog"           "$MC_LOG_REL" 2>/dev/null && CRASH_CAUSE="Watchdog timeout"
+                grep -qiE "java.lang.Error"    "$MC_LOG_REL" 2>/dev/null && CRASH_CAUSE="Java Error"
                 log "[MC] Cause: ${CRASH_CAUSE}"
 
-                echo "── Fin du log (30 lignes) ──"
                 tail -30 "$MC_LOG_REL" 2>/dev/null || true
-                echo "────────────────────────────"
 
                 emit_event "{\"type\":\"crash\",\"count\":${CRASHES},\"cause\":\"${CRASH_CAUSE}\"}"
                 push_gist "crash" &
 
                 if [ "$CRASHES" -ge 5 ]; then
-                  log "[MC] ☠ CRASH FATAL — 5 crashs consécutifs"
+                  log "[MC] CRASH FATAL — 5 crashs consecutifs"
                   backup "crash-fatal" "1"
                   git_sync
                   emit_event '{"type":"crash_fatal"}'
@@ -1089,117 +862,95 @@ print(len(players))
                 fi
 
                 backup "pre-restart-crash-${CRASHES}" "1"
-
-                log "[MC] Redémarrage dans 10s..."
+                log "[MC] Redemarrage dans 10s..."
                 sleep 10
                 WARNED=0
                 > "$MC_LOG_REL"
                 MC_PID=$(start_mc)
                 T_START=$(date +%s)
-                log "[MC] Redémarré PID=${MC_PID}"
+                log "[MC] Redemarre PID=${MC_PID}"
               fi
-
             else
               CRASHES=0
             fi
 
-            # ── Redémarrage automatique (~340min) ─────────────────────
             if [ "$ELAPSED" -ge 20400 ]; then
-              log "[MAIN] Relance automatique après ${ELAPSED_MIN}min"
-
+              log "[MAIN] Relance automatique apres ${ELAPSED_MIN}min"
               emit_event "{\"type\":\"restart\",\"minutes\":\"${ELAPSED_MIN}\"}"
-
               backup "pre-auto-restart" "1"
               git_sync
               push_gist "restarting" &
-
               sleep 3
-
               for PID in "$MONITOR_PID" "$LIVE_PID" "$WATCHER_PID" "$BOT_PID"; do
                 [ "$PID" -gt 0 ] && kill "$PID" 2>/dev/null || true
               done
-
               gh_dispatch
-
-              mc_cmd "say §c[Serveur] Redémarrage automatique — à dans 2min !"
+              mc_cmd "say §c[Serveur] Redemarrage automatique — a dans 2min !"
               mc_cmd "stop"
               for i in $(seq 1 90); do
                 sleep 1
                 mc_alive || break
-                [ $(( i % 15 )) -eq 0 ] && log "[MC] Attente arrêt... ${i}s"
+                [ $(( i % 15 )) -eq 0 ] && log "[MC] Attente arret... ${i}s"
               done
-
               mc_alive && kill -9 "$MC_PID" 2>/dev/null || true
-
-              log "[MAIN] Redémarrage automatique terminé"
+              log "[MAIN] Redemarrage automatique termine"
               exit 0
             fi
 
           done
 
-# ──────────────────────────────────────────────────────────────────────────────
-# 9. BACKUP FINAL
-# ──────────────────────────────────────────────────────────────────────────────
       - name: Backup final
         if: always()
         env:
           FINE_GRAINED_PAT: ${{ secrets.FINE_GRAINED_PAT }}
-          REPO:             ${{ github.repository }}
-          STATS_GIST_ID:    ${{ secrets.STATS_GIST_ID }}
+          REPO: ${{ github.repository }}
+          STATS_GIST_ID: ${{ secrets.STATS_GIST_ID }}
         run: |
           set -uo pipefail
-          echo "════════════════════════════════════"
-          echo "  BACKUP FINAL"
-          echo "════════════════════════════════════"
 
           if [ -n "${STATS_GIST_ID:-}" ]; then
             python3 - <<'PYEOF'
-import json, os, urllib.request, datetime
-
-gist_id = os.environ.get('STATS_GIST_ID', '')
-pat     = os.environ.get('FINE_GRAINED_PAT', '')
-if not gist_id or not pat:
-    exit(0)
-
-payload = json.dumps({
-    'files': {
-        'mc-stats.json': {
-            'content': json.dumps({
-                'status':  'offline',
-                'updated': datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
-                'players': [],
-                'online':  0,
-            })
-        }
-    }
-}).encode()
-
-req = urllib.request.Request(
-    f'https://api.github.com/gists/{gist_id}',
-    data=payload, method='PATCH',
-    headers={
-        'Authorization': f'token {pat}',
-        'Accept': 'application/vnd.github.v3+json',
-        'Content-Type': 'application/json',
-    }
-)
-try:
-    urllib.request.urlopen(req, timeout=10)
-    print('[GIST] Offline marqué')
-except Exception as e:
-    print(f'[GIST] Erreur: {e}')
-PYEOF
+          import json, os, urllib.request, datetime
+          gist_id = os.environ.get('STATS_GIST_ID', '')
+          pat     = os.environ.get('FINE_GRAINED_PAT', '')
+          if not gist_id or not pat:
+              exit(0)
+          payload = json.dumps({
+              'files': {
+                  'mc-stats.json': {
+                      'content': json.dumps({
+                          'status':  'offline',
+                          'updated': datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
+                          'players': [],
+                          'online':  0,
+                      })
+                  }
+              }
+          }).encode()
+          req = urllib.request.Request(
+              f'https://api.github.com/gists/{gist_id}',
+              data=payload, method='PATCH',
+              headers={
+                  'Authorization': f'token {pat}',
+                  'Accept': 'application/vnd.github.v3+json',
+                  'Content-Type': 'application/json',
+              }
+          )
+          try:
+              urllib.request.urlopen(req, timeout=10)
+              print('[GIST] Offline marque')
+          except Exception as e:
+              print(f'[GIST] Erreur: {e}')
+          PYEOF
           fi
 
           if [ -f /tmp/mc_stopped_cleanly ]; then
-            echo "[BACKUP] Arrêt propre — backup déjà effectué"
-            echo "[DRIVE]"
+            echo "[BACKUP] Arret propre — backup deja effectue"
             rclone size rclone-mc:mc-backup/ 2>/dev/null || true
             exit 0
           fi
 
-          BLACKLIST="plugins logs cache config libraries
-            .git .paper-remapped crash-reports debug discord_bot dashboard"
+          BLACKLIST="plugins logs cache config libraries .git .paper-remapped crash-reports debug discord_bot dashboard"
 
           WORLD_DIRS=""
           while IFS= read -r dir; do
@@ -1214,32 +965,27 @@ PYEOF
           done < <(find . -maxdepth 1 -mindepth 1 -type d 2>/dev/null)
 
           if [ -n "$WORLD_DIRS" ]; then
-            echo "[WORLDS]${WORLD_DIRS}"
-            # shellcheck disable=SC2086
             tar -cf - \
               --exclude='*/session.lock' \
-              --exclude='*/poi/*'        \
-              --exclude='level.dat_old'  \
-              --exclude='*.lck'          \
-              $WORLD_DIRS 2>/dev/null    \
+              --exclude='*/poi/*' \
+              --exclude='level.dat_old' \
+              --exclude='*.lck' \
+              $WORLD_DIRS 2>/dev/null \
             | zstd -19 -T0 --long=27 -fo /tmp/worlds_final.tar.zst
 
             echo "[ARCHIVE] $(du -sh /tmp/worlds_final.tar.zst | cut -f1)"
 
             rclone copyto /tmp/worlds_final.tar.zst \
-              rclone-mc:mc-backup/worlds.tar.zst     \
-              --transfers=8 --multi-thread-streams=8  \
+              rclone-mc:mc-backup/worlds.tar.zst \
+              --transfers=8 --multi-thread-streams=8 \
               --buffer-size=256M --retries=5 --checksum \
               2>/dev/null \
               && echo "[UPLOAD] OK" \
-              || echo "[UPLOAD] ⚠ Échoué"
+              || echo "[UPLOAD] Echoue"
 
             rm -f /tmp/worlds_final.tar.zst
           else
-            echo "[BACKUP] Aucun monde à sauvegarder"
+            echo "[BACKUP] Aucun monde a sauvegarder"
           fi
 
-          echo ""
-          echo "[DRIVE] Contenu backup:"
           rclone size rclone-mc:mc-backup/ 2>/dev/null || true
-          echo "════════════════════════════════════"
